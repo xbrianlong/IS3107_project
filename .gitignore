@@ -1,5 +1,5 @@
 # Ignore virtual env file
-.venv/
+venv/
 
 # Ignore _pycache files
 src/__pycache__/
