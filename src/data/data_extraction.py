@@ -142,7 +142,76 @@ def filter_out_global_songs(user_data_filename):
     
     return filtered_df
 
+def convert_to_lightgcn_format(
+    csv_path,
+    output_dir='lightgcn/data/music', # might have to double check dir paths
+    interaction_filename='user_track_interactions.txt',
+    user_map_filename='id2user.json',
+    item_map_filename='id2track.json'
+):
+    import json
+
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_csv(csv_path)
+    df['track_full_name'] = df['track_name'] + ' - ' + df['artist']
+    user2id = {username: idx for idx, username in enumerate(df['username'].unique())}
+    track2id = {track: idx for idx, track in enumerate(df['track_full_name'].unique())}
+    id2user = {idx: user for user, idx in user2id.items()}
+    id2track = {idx: track for track, idx in track2id.items()}
+    df['user_id'] = df['username'].map(user2id)
+    df['item_id'] = df['track_full_name'].map(track2id)
+    interaction_df = df[['user_id', 'item_id']].drop_duplicates()
+    interaction_path = os.path.join(output_dir, interaction_filename)
+    interaction_df.to_csv(interaction_path, sep=' ', index=False, header=False)
+    with open(os.path.join(output_dir, user_map_filename), 'w') as f:
+        json.dump(id2user, f)
+    with open(os.path.join(output_dir, item_map_filename), 'w') as f:
+        json.dump(id2track, f)
+    print(f"[✅] Interactions saved to: {interaction_path}")
+    print(f"[💾] ID maps saved to: {user_map_filename}, {item_map_filename}")
+    print(f"[👥] Total users: {len(user2id)} | 🎵 Tracks: {len(track2id)}")
+
+def split_lightgcn_train_test(
+    input_path='lightgcn/data/music/user_track_interactions.txt',
+    output_dir='lightgcn/data/music',
+    train_filename='train.txt',
+    test_filename='test.txt',
+    test_ratio=0.2,
+    random_state=42
+):
+    from sklearn.model_selection import train_test_split
+
+    df = pd.read_csv(input_path, sep=' ', names=['user', 'item'])
+    train_rows, test_rows = [], []
+
+    for user, group in df.groupby('user'):
+        if len(group) < 2:
+            train_rows.append(group)
+            continue
+        train, test = train_test_split(group, test_size=test_ratio, random_state=random_state)
+        train_rows.append(train)
+        test_rows.append(test)
+
+    train_df, test_df = pd.concat(train_rows), pd.concat(test_rows)
+    os.makedirs(output_dir, exist_ok=True)
+    train_path = os.path.join(output_dir, train_filename)
+    test_path = os.path.join(output_dir, test_filename)
+    train_df.to_csv(train_path, sep=' ', index=False, header=False)
+    test_df.to_csv(test_path, sep=' ', index=False, header=False)
+
+    print(f"[✅] Train/Test split complete.")
+    print(f"📂 Train: {train_path} ({len(train_df)} rows)")
+    print(f"📂 Test: {test_path} ({len(test_df)} rows)")
+
 # To run as a script
 if __name__ == '__main__': 
     output_file = get_top_tracks()
-    filter_out_global_songs(output_file)
+    if output_file:
+        filtered_file = filter_out_global_songs(output_file)
+        if isinstance(filtered_file, pd.DataFrame):
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+            temp_filtered_csv = os.path.join(DATA_DIR, f'filtered_temp_{timestamp}.csv')
+            filtered_file.to_csv(temp_filtered_csv, index=False)
+
+            convert_to_lightgcn_format(csv_path=temp_filtered_csv)
+            split_lightgcn_train_test()

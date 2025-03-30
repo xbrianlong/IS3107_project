@@ -4,3 +4,5 @@
 ```
 python -m src.data.data_extraction
 ```
+
+## Under lightgcn/data, we need a `music` directory, in which we will store our intermediate data (e.g. train.txt, test.txt, etc.)
