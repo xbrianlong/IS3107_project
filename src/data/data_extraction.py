@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 import os
 
-from settings import LASTFM_API_KEY, LASTFM_BASE_URL, TOP_GLOBAL_SONGS_URL
+from config.settings import LASTFM_API_KEY, LASTFM_BASE_URL, TOP_GLOBAL_SONGS_URL
 
 
 # Last.fm API configuration
@@ -140,7 +140,7 @@ def filter_out_global_songs(user_data_filename):
     filtered_df.to_csv(output_filename, index=False)
 
     
-    return filtered_df
+    return filtered_df, output_filename
 
 def convert_to_lightgcn_format(
     csv_path,
