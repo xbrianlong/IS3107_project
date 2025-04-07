@@ -404,31 +404,81 @@ with tab2:
                 edge_z_3d.extend([z0, z1, None])
 
             edge_trace_3d = go.Scatter3d(x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
-                                         line=dict(width=1, color='#888'), hoverinfo='none', mode='lines')
+                                        line=dict(width=1, color='#888'), hoverinfo='none', mode='lines')
 
-            node_x_3d, node_y_3d, node_z_3d, node_text_3d, node_color_3d = [], [], [], [], []
-            for node in G.nodes():
-                x, y, z = pos_3d[node]
-                node_x_3d.append(x)
-                node_y_3d.append(y)
-                node_z_3d.append(z)
-                node_text_3d.append(node)
-                node_color_3d.append('blue' if G.nodes[node]['type'] == 'user' else 'orange')
+            # Create separate traces for each node type
+            # Selected user node
+            selected_user_x = [pos_3d[selected_user][0]]
+            selected_user_y = [pos_3d[selected_user][1]]
+            selected_user_z = [pos_3d[selected_user][2]]
+            selected_user_text = [f"👤 {selected_user} (YOU)"]
+            
+            selected_user_trace = go.Scatter3d(
+                x=selected_user_x, y=selected_user_y, z=selected_user_z,
+                mode='markers+text',
+                marker=dict(size=15, color='green', line=dict(width=2, color='white')),
+                text=selected_user_text,
+                textposition="top center",
+                hoverinfo='text',
+                name='Selected User'
+            )
+            
+            # Other user nodes
+            other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
+            if other_users:
+                other_user_x = [pos_3d[node][0] for node in other_users]
+                other_user_y = [pos_3d[node][1] for node in other_users]
+                other_user_z = [pos_3d[node][2] for node in other_users]
+                other_user_text = [f"👤 {node}" for node in other_users]
+                
+                other_user_trace = go.Scatter3d(
+                    x=other_user_x, y=other_user_y, z=other_user_z,
+                    mode='markers+text',
+                    marker=dict(size=12, color='blue', line=dict(width=1)),
+                    text=other_user_text,
+                    textposition="top center",
+                    hoverinfo='text',
+                    name='Other Users'
+                )
+            else:
+                other_user_trace = None
+            
+            # Song nodes
+            song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
+            song_x = [pos_3d[node][0] for node in song_nodes]
+            song_y = [pos_3d[node][1] for node in song_nodes]
+            song_z = [pos_3d[node][2] for node in song_nodes]
+            # Trim song names if they're too long
+            song_text = [f"🎵 {node[:20]}..." if len(node) > 20 else f"🎵 {node}" for node in song_nodes]
+            
+            song_trace = go.Scatter3d(
+                x=song_x, y=song_y, z=song_z,
+                mode='markers+text',
+                marker=dict(size=10, color='orange', line=dict(width=1)),
+                text=song_text,
+                textposition="bottom center",
+                hoverinfo='text',
+                name='Songs'
+            )
 
-            node_trace_3d = go.Scatter3d(x=node_x_3d, y=node_y_3d, z=node_z_3d, mode='markers',
-                                         marker=dict(size=10, color=node_color_3d, line=dict(width=2)),
-                                         text=node_text_3d, hoverinfo='text')
+            # Combine traces for the figure
+            traces = [edge_trace_3d, selected_user_trace, song_trace]
+            if other_user_trace:
+                traces.append(other_user_trace)
 
-            fig_3d = go.Figure(data=[edge_trace_3d, node_trace_3d],
-                               layout=go.Layout(title='3D User-Song Network', showlegend=False,
-                                                hovermode='closest', margin=dict(b=20, l=5, r=5, t=40),
+            fig_3d = go.Figure(data=traces,
+                            layout=go.Layout(title='3D User-Song Network', 
+                                                showlegend=True,
+                                                hovermode='closest', 
+                                                margin=dict(b=20, l=5, r=5, t=40),
                                                 scene=dict(xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                                           yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                                           zaxis=dict(showgrid=False, zeroline=False, showticklabels=False))))
+                                                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False))))
 
-            st.plotly_chart(fig_3d, use_container_width=True) # Ensure it fits within the column
+            st.plotly_chart(fig_3d, use_container_width=True)
         else:
             st.warning("No connections found for the selected user to display the network.")
+
     st.markdown("---")
     col3a, col3b = st.columns(2)
     with col3a:
@@ -511,27 +561,70 @@ with tab2:
                 mode='lines'
             )
 
-            node_x_3d, node_y_3d, node_z_3d, node_text_3d, node_color_3d = [], [], [], [], []
-            for node in G.nodes():
-                x, y, z = pos_3d[node]
-                node_x_3d.append(x)
-                node_y_3d.append(y)
-                node_z_3d.append(z)
-                node_text_3d.append(node)
-                node_color_3d.append('royalblue' if G.nodes[node]['type'] == 'user' else 'gold')
-
-            node_trace_3d = go.Scatter3d(
-                x=node_x_3d, y=node_y_3d, z=node_z_3d,
-                mode='markers',
-                marker=dict(size=10, color=node_color_3d, line=dict(width=2)),
-                text=node_text_3d,
-                hoverinfo='text'
+            # Create separate traces for different node types
+            # Selected user node
+            selected_user_x = [pos_3d[selected_user][0]]
+            selected_user_y = [pos_3d[selected_user][1]]
+            selected_user_z = [pos_3d[selected_user][2]]
+            selected_user_text = [f"👤 {selected_user} (YOU)"]
+            
+            selected_user_trace = go.Scatter3d(
+                x=selected_user_x, y=selected_user_y, z=selected_user_z,
+                mode='markers+text',
+                marker=dict(size=15, color='green', line=dict(width=2, color='white')),
+                text=selected_user_text,
+                textposition="top center",
+                hoverinfo='text',
+                name='Selected User'
+            )
+            
+            # Other user nodes
+            other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
+            if other_users:
+                other_user_x = [pos_3d[node][0] for node in other_users]
+                other_user_y = [pos_3d[node][1] for node in other_users]
+                other_user_z = [pos_3d[node][2] for node in other_users]
+                other_user_text = [f"👤 {node}" for node in other_users]
+                
+                other_user_trace = go.Scatter3d(
+                    x=other_user_x, y=other_user_y, z=other_user_z,
+                    mode='markers+text',
+                    marker=dict(size=12, color='royalblue', line=dict(width=1)),
+                    text=other_user_text,
+                    textposition="top center",
+                    hoverinfo='text',
+                    name='Other Users'
+                )
+            else:
+                other_user_trace = None
+            
+            # Song nodes
+            song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
+            song_x = [pos_3d[node][0] for node in song_nodes]
+            song_y = [pos_3d[node][1] for node in song_nodes]
+            song_z = [pos_3d[node][2] for node in song_nodes]
+            # Trim song names if they're too long
+            song_text = [f"🎵 {node[:20]}..." if len(node) > 20 else f"🎵 {node}" for node in song_nodes]
+            
+            song_trace = go.Scatter3d(
+                x=song_x, y=song_y, z=song_z,
+                mode='markers+text',
+                marker=dict(size=10, color='gold', line=dict(width=1)),
+                text=song_text,
+                textposition="bottom center",
+                hoverinfo='text',
+                name='Songs'
             )
 
-            fig_3d = go.Figure(data=[edge_trace_3d, node_trace_3d],
+            # Combine traces for the figure
+            traces = [edge_trace_3d, selected_user_trace, song_trace]
+            if other_user_trace:
+                traces.append(other_user_trace)
+
+            fig_3d = go.Figure(data=traces,
                             layout=go.Layout(
                                 title=f'3D Network for {selected_user} & Shared Recommendations',
-                                showlegend=False,
+                                showlegend=True,
                                 hovermode='closest',
                                 margin=dict(b=20, l=5, r=5, t=40),
                                 scene=dict(
@@ -675,7 +768,6 @@ with tab3:
             st.plotly_chart(fig, use_container_width=True)
     
 
-
 with tab4:
     st.session_state.current_tab = "artist_intelligence"
     st.title("🎵 Artist Intelligence Dashboard")
@@ -687,7 +779,7 @@ with tab4:
 
     # --- Artist Overview Section ---
     st.header(f"Overview of {selected_artist}")
-    col_overview_1, col_overview_2 = st.columns([1, 3])
+    col_overview_1, col_overview_2, col_overview_3 = st.columns([1, 2, 1])
 
     with col_overview_1:
         artist_image = get_artist_image(selected_artist)
@@ -705,6 +797,7 @@ with tab4:
         st.metric("Avg. Plays per Listener", f"{plays_per_user:.1f}")
 
     with col_overview_2:
+        # Top Songs Chart
         st.subheader("Top Songs")
         top_songs = artist_df["Song"].value_counts().head(10).reset_index()
         top_songs.columns = ["Song", "Plays"]
@@ -725,9 +818,8 @@ with tab4:
             height=300 
         )
         st.plotly_chart(fig_top_songs, use_container_width=True)
-        # --- Temporal Trends Section ---
-        st.header("Temporal Listening Trends")
 
+        # Temporal Listening Trend
         if "Listen_Date" in artist_df.columns:
             artist_df["YearMonth"] = artist_df["Listen_Date"].dt.strftime("%Y-%m")
             monthly_listens = artist_df.groupby("YearMonth").size().reset_index(name="Listens")
@@ -746,12 +838,54 @@ with tab4:
                 xaxis_title="Month",
                 yaxis_title="Listen Count",
                 xaxis_tickangle=-45,
-                height=350 # Adjust height as needed
+                height=350
             )
 
             st.plotly_chart(fig_monthly_trend, use_container_width=True)
         else:
             st.warning("Listen Date information is not available for temporal analysis.")
+
+    with col_overview_3:
+        # Listener Engagement Funnel
+        st.subheader("Listener Engagement")
+        if "Listen_Date" in artist_df.columns:
+            user_listen_counts = artist_df.groupby("User").size().reset_index(name="ListenCount")
+
+            listen_categories = [
+                (1, "One-time Listeners"),
+                (2, 5, "Casual Listeners"),
+                (6, 15, "Regular Listeners"),
+                (16, float('inf'), "Super Fans")
+            ]
+
+            funnel_data = []
+            for category in listen_categories:
+                if len(category) == 2:
+                    count = len(user_listen_counts[user_listen_counts["ListenCount"] == category[0]])
+                    funnel_data.append({"Category": category[1], "Count": count})
+                else:
+                    count = len(user_listen_counts[(user_listen_counts["ListenCount"] >= category[0]) &
+                                                    (user_listen_counts["ListenCount"] <= category[1])])
+                    funnel_data.append({"Category": category[2], "Count": count})
+
+            funnel_df = pd.DataFrame(funnel_data)
+
+            fig_engagement_funnel = go.Figure(data=[
+                go.Funnel(
+                    y=funnel_df["Category"],
+                    x=funnel_df["Count"],
+                    textinfo="value+percent initial"
+                )
+            ])
+
+            fig_engagement_funnel.update_layout(
+                title_text="Engagement Funnel",
+                height=700  # Make it taller to match the combined height of the two charts beside it
+            )
+
+            st.plotly_chart(fig_engagement_funnel, use_container_width=True)
+        else:
+            st.warning("Listen Date information is not available for engagement analysis.")
 
     st.markdown("---") 
 
@@ -807,53 +941,5 @@ with tab4:
             height=350 
         )
         st.plotly_chart(fig_other_artists, use_container_width=True)
-
-    st.markdown("---") 
-
-    # --- Listener Engagement Section ---
-    st.header("Listener Engagement")
-
-    if "Listen_Date" in artist_df.columns:
-        user_listen_counts = artist_df.groupby("User").size().reset_index(name="ListenCount")
-
-        listen_categories = [
-            (1, "One-time Listeners"),
-            (2, 5, "Casual Listeners"),
-            (6, 15, "Regular Listeners"),
-            (16, float('inf'), "Super Fans")
-        ]
-
-        funnel_data = []
-        for category in listen_categories:
-            if len(category) == 2:
-                count = len(user_listen_counts[user_listen_counts["ListenCount"] == category[0]])
-                funnel_data.append({"Category": category[1], "Count": count})
-            else:
-                count = len(user_listen_counts[(user_listen_counts["ListenCount"] >= category[0]) &
-                                                (user_listen_counts["ListenCount"] <= category[1])])
-                funnel_data.append({"Category": category[2], "Count": count})
-
-        funnel_df = pd.DataFrame(funnel_data)
-
-        fig_engagement_funnel = go.Figure(data=[
-            go.Funnel(
-                y=funnel_df["Category"],
-                x=funnel_df["Count"],
-                textinfo="value+percent initial"
-            )
-        ])
-
-        fig_engagement_funnel.update_layout(
-            title_text="Listener Engagement Funnel",
-            height=300 
-        )
-
-        st.plotly_chart(fig_engagement_funnel, use_container_width=True)
-    else:
-        st.warning("Listen Date information is not available for engagement analysis.")
-
-    st.markdown("---") 
-
-    
         
         
