@@ -68,13 +68,9 @@ def get_artist_image(artist_name):
         return "https://via.placeholder.com/150"
     
 df = pd.read_json("lastfm_data.json")
+df['Listen_Date'] = pd.to_datetime(df['Listen_Date'], format="mixed")
 
-df["Listen_Date"] = pd.to_datetime(df["Listen_Date"], errors='coerce')
 
-df["Listen_Date"] = df["Listen_Date"].dt.date
-df = df.dropna(subset=["Listen_Date"])
-
-@st.cache_data
 def get_top_artists_with_images(limit=10, genre_filter=None):
     if genre_filter and genre_filter != "All":
         filtered_df = df[df["Genre"] == genre_filter]
@@ -328,7 +324,7 @@ with tab2:
             user_df_sorted["Listen_Date"] = user_df_sorted["Listen_Date"].dt.date
             user_listen_counts = user_df_sorted.groupby("Listen_Date").size().reset_index(name="Count")
 
-            years = user_df["Listen_Date"].dt.year.unique()
+            years = user_df["Listen_Date"].dt.year.unique().tolist()
             if len(years) > 0:
                 selected_year = st.selectbox("Select Year for Heatmap", sorted(years, reverse=True))
 
@@ -898,7 +894,6 @@ with tab4:
     col_audience_1, col_audience_2 = st.columns(2)
 
     with col_audience_1:
-        st.subheader("Genre Preferences")
         genre_affinity = users_listening_data.groupby("Genre").size().reset_index(name="Count")
         genre_affinity = genre_affinity.sort_values("Count", ascending=False).head(10)
 
@@ -920,7 +915,6 @@ with tab4:
         st.plotly_chart(fig_genre_affinity, use_container_width=True)
 
     with col_audience_2:
-        st.subheader("Other Artists Liked")
         other_artists = users_listening_data[users_listening_data["Artist"] != selected_artist]["Artist"].value_counts().head(10)
         other_artists = other_artists.reset_index()
         other_artists.columns = ["Artist", "Count"]
