@@ -660,7 +660,7 @@ with tab3:
     # For display in the dataframe head
     display_df = df.copy()
     display_df["Listen_Date"] = display_df["Listen_Date"].dt.date
-    st.write(display_df.head())
+    # st.write(display_df.head())
     
     # Create monthly trend analysis
     st.header("🔍 Monthly Listening Trends")
@@ -768,7 +768,7 @@ with tab3:
             # Create a display dataframe with date format
             display_artist_df = artist_df.copy()
             display_artist_df["Listen_Date"] = display_artist_df["Listen_Date"].dt.date
-            st.write(display_artist_df)
+            # st.write(display_artist_df)
             
             artist_monthly = artist_df.groupby(["YearMonth", "Artist"]).size().reset_index(name="Count")
             
