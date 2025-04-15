@@ -68,7 +68,9 @@ def get_artist_image(artist_name):
         return "https://via.placeholder.com/150"
     
 df = pd.read_json("lastfm_data.json")
-df['Listen_Date'] = pd.to_datetime(df['Listen_Date'], format="mixed")
+df['Listen_Date'] = pd.to_datetime(df['Listen_Date'], format='mixed', dayfirst=True, errors='coerce').dt.date
+# st.write(df.head())
+
 
 
 def get_top_artists_with_images(limit=10, genre_filter=None):
@@ -641,13 +643,24 @@ with tab3:
     st.session_state.current_tab = "trends"
     st.title("📈 Trend Analysis")
     
-    if not pd.api.types.is_datetime64_any_dtype(df["Listen_Date"]):
-        df["Listen_Date"] = pd.to_datetime(df["Listen_Date"], errors='coerce')
-    
-    # Add month and year columns
+    # Convert to datetime and handle errors
+    df["Listen_Date"] = pd.to_datetime(df["Listen_Date"], format='mixed', dayfirst=True, errors='coerce')
+
+    # Drop rows where conversion failed
+    df = df.dropna(subset=["Listen_Date"])
+
+    # Create date-related columns
     df["Month"] = df["Listen_Date"].dt.month
     df["Year"] = df["Listen_Date"].dt.year
-    df["YearMonth"] = df["Listen_Date"].dt.strftime("%Y-%m")
+    df["YearMonth"] = pd.to_datetime(df["Listen_Date"]).dt.strftime('%b %Y')
+
+    # Create a display date column (date only, no time)
+    df["Display_Date"] = df["Listen_Date"].dt.date
+    
+    # For display in the dataframe head
+    display_df = df.copy()
+    display_df["Listen_Date"] = display_df["Listen_Date"].dt.date
+    st.write(display_df.head())
     
     # Create monthly trend analysis
     st.header("🔍 Monthly Listening Trends")
@@ -656,17 +669,25 @@ with tab3:
     trend_type = st.selectbox("Select trend to analyze:", 
                              ["Genre Popularity", "Artist Popularity"])
     
+    # Convert min and max to date objects for the date picker
+    min_date = df["Listen_Date"].dt.date.min()
+    max_date = df["Listen_Date"].dt.date.max()
+    
     date_range = st.date_input("Select date range:", 
-                              [df["Listen_Date"].min(), df["Listen_Date"].max()],
-                              min_value=df["Listen_Date"].min(),
-                              max_value=df["Listen_Date"].max())
+                              [min_date, max_date],
+                              min_value=min_date,
+                              max_value=max_date)
     
     # Filter by date range if specified
     if len(date_range) == 2:
-        start_date, end_date = [pd.to_datetime(d) for d in date_range]  # Convert to datetime64[ns]
-        filtered_df = df[(df["Listen_Date"] >= start_date) & (df["Listen_Date"] <= end_date)]
+        start_date, end_date = date_range
+        # Convert date objects back to datetime for filtering
+        start_datetime = pd.Timestamp(start_date)
+        end_datetime = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        filtered_df = df[(df["Listen_Date"] >= start_datetime) & (df["Listen_Date"] <= end_datetime)]
     else:
         filtered_df = df
+        
     if trend_type == "Genre Popularity":
         # Get top genres for the period
         top_genres = filtered_df["Genre"].value_counts().nlargest(30).index.tolist()
@@ -693,9 +714,15 @@ with tab3:
                 title="Genre Popularity Trends Over Time",
                 xaxis_title="Month",
                 yaxis_title="Listen Count",
-                xaxis_tickangle=-45,
+                xaxis_tickangle=-45,  
+                xaxis={
+                    'type': 'category',  
+                    'tickmode': 'auto',
+                    'nticks': 12,  
+                },
                 legend_title="Genre",
-                height=500
+                height=500,
+                margin=dict(b=100)  
             )
             
             st.plotly_chart(fig, use_container_width=True)
@@ -738,6 +765,11 @@ with tab3:
         if selected_artists:
             artist_df = filtered_df[filtered_df["Artist"].isin(selected_artists)]
             
+            # Create a display dataframe with date format
+            display_artist_df = artist_df.copy()
+            display_artist_df["Listen_Date"] = display_artist_df["Listen_Date"].dt.date
+            st.write(display_artist_df)
+            
             artist_monthly = artist_df.groupby(["YearMonth", "Artist"]).size().reset_index(name="Count")
             
             fig = go.Figure()
@@ -762,7 +794,6 @@ with tab3:
             )
             
             st.plotly_chart(fig, use_container_width=True)
-    
 
 with tab4:
     st.session_state.current_tab = "artist_intelligence"
