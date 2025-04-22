@@ -75,9 +75,9 @@ active_users_df = pd.read_csv(file_path)
 
 # Optional: Preview the data
 print(active_users_df.head())
-usernames = active_users_df["username"].dropna().unique().tolist()[:100]
+usernames = active_users_df["username"].dropna().unique().tolist()[:300]
 
 df = generate_lastfm_data(usernames, api_key, refresh=True)  # Set `refresh=True` to force an update
-print(df.head())
+# print(df.head())
 
 

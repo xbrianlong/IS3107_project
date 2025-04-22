@@ -275,59 +275,151 @@ with tab1:
 
 with tab2:
     st.session_state.current_tab = "user"
+    
+    # Header section with user selection
     st.title("👤 User Personal Dashboard")
+    st.markdown("Explore your music preferences and discover new songs based on your listening habits.")
+    
     selected_user = st.selectbox("Select a User", df.User.unique().tolist())
     user_df = df[df["User"] == selected_user]
     
+    # Check if user has data
+    if user_df.empty:
+        st.warning(f"No listening data found for {selected_user}.")
+        st.stop()
     
-    # Add music taste breakdown
+    # Stats summary section
+    st.markdown("## Quick Stats")
+    col_stats1, col_stats2, col_stats3 = st.columns(3)
+    with col_stats1:
+        st.metric("Total Listens", f"{len(user_df):,}")
+    with col_stats2:
+        unique_songs = user_df["Song"].nunique()
+        st.metric("Unique Songs", f"{unique_songs:,}")
+    with col_stats3:
+        unique_artists = user_df["Artist"].nunique()
+        st.metric("Unique Artists", f"{unique_artists:,}")
+    
+    # ==========================================
+    # SECTION 1: Music Taste Analysis
+    # ==========================================
     st.markdown("---")
-    st.subheader("🎭 Music Taste Analysis")
-
-    # Genre distribution
-    col1, col2 = st.columns(2)
-
-    with col1:
-        genre_counts = user_df["Genre"].value_counts().reset_index()
-        genre_counts.columns = ["Genre", "Count"]
-        total_listens = genre_counts["Count"].sum()
-        genre_counts["Percentage"] = (genre_counts["Count"] / total_listens * 100).round(1)
+    st.header("🎭 Your Music Taste Profile")
+    
+    # Create tabs for different music insights
+    taste_tab1, taste_tab2 = st.tabs(["Genre & Artists", "Listening Patterns"])
+    
+    with taste_tab1:
+        col1, col2 = st.columns(2)
         
-        fig = go.Figure(data=[
-            go.Pie(
-                labels=genre_counts["Genre"],
-                values=genre_counts["Count"],
-                textinfo='label+percent',
-                insidetextorientation='radial'
+        with col1:
+            # Genre distribution
+            genre_counts = user_df["Genre"].value_counts().reset_index()
+            genre_counts.columns = ["Genre", "Count"]
+            total_listens = genre_counts["Count"].sum()
+            genre_counts["Percentage"] = (genre_counts["Count"] / total_listens * 100).round(1)
+            
+            fig = go.Figure(data=[
+                go.Pie(
+                    labels=genre_counts["Genre"],
+                    values=genre_counts["Count"],
+                    textinfo='label+percent',
+                    insidetextorientation='radial',
+                    hole=.3,  # Creates a donut chart for more modern look
+                    marker=dict(colors=px.colors.qualitative.Pastel)
+                )
+            ])
+            
+            fig.update_layout(
+                title="Your Genre Distribution",
+                height=400,
+                margin=dict(t=30, b=0, l=0, r=0)
             )
-        ])
-        
-        fig.update_layout(
-            title="Genre Distribution",
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+            
+            st.plotly_chart(fig, use_container_width=True)
 
-
-    with col2:
-        
-        # Add user's top artists
-        st.write("### Top Artists")
-        user_top_artists = user_df["Artist"].value_counts().head(5)
-        st.bar_chart(user_top_artists)
+        with col2:
+            # Add user's top artists
+            st.subheader("Your Top Artists")
+            user_top_artists = user_df["Artist"].value_counts().head(5)
+            
+            fig = px.bar(
+                x=user_top_artists.values,
+                y=user_top_artists.index,
+                orientation='h',
+                labels={"x": "Number of Listens", "y": "Artist"},
+                color=user_top_artists.values,
+                color_continuous_scale=px.colors.sequential.Viridis
+            )
+            
+            fig.update_layout(
+                height=400,
+                margin=dict(t=10, b=0, l=0, r=0),
+                yaxis=dict(autorange="reversed")  # Put highest values at top
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
     
-    user_df["Listen_Date"] = pd.to_datetime(user_df["Listen_Date"])
+    with taste_tab2:
+        # Add listening trends by time if available
+        st.markdown("#### Your Listening Activity")
+        if "Listen_Date" in user_df.columns:
+            user_df["Listen_Date"] = pd.to_datetime(user_df["Listen_Date"])
+            
+            # Group by date and count
+            listen_by_day = user_df.resample('D', on='Listen_Date').size()
+            
+            fig = px.line(
+                x=listen_by_day.index, 
+                y=listen_by_day.values,
+                labels={"x": "Date", "y": "Number of Listens"},
+                title="Your Listening Activity Over Time"
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Listening date information is not available.")
+    
+    # ==========================================
+    # SECTION 2: Personalized Recommendations
+    # ==========================================
     st.markdown("---")
-    col2a, col2b, col2c = st.columns(3)
-
-    with col2a:
-        st.write("### User-Artist Network")
+    st.header("🎵 Personalized Music Recommendations")
     
-    # Calculate top 5 artists for each user
-        user_artist_counts = df.groupby(['User', 'Artist']).size().reset_index(name='Count')
+    rec_tab1, rec_tab2 = st.tabs(["Your Top Picks", "Community Recommendations"])
+    
+    with rec_tab1:
+        # Show personalized recommendations
+        if selected_user in list(recommendations['username']):
+            # Get the row corresponding to the selected user
+            user_row = recommendations[recommendations['username'] == selected_user].iloc[0]
+            
+            # Extract top 3 recommended songs
+            rec_list = [user_row['rec_1'], user_row['rec_2'], user_row['rec_3']]
+
+            # Use columns for cleaner layout
+            cols = st.columns(3)
+            for i, song in enumerate(rec_list):
+                with cols[i]:
+                    song_title = song.split(' - ')[0].strip()
+                    artist = song.split(' - ')[1].split('(score')[0].strip()
+                    score = song.split('score: ')[1].replace(')', '')
+                    
+                    st.markdown(f"### #{i+1}")
+                    st.markdown(f"🎶 **{song_title}**")
+                    st.markdown(f"👤 *{artist}*")
+                    st.markdown(f"⭐ Match Score: `{score}`")
+                    
+                    # Add a "Listen" button that could link to music platforms
+                    st.button(f"Listen to {song_title}", key=f"listen_{i}")
+        else:
+            st.warning(f"No personalized recommendations found for {selected_user}.")
+    
+    with rec_tab2:
+        st.subheader("Song Recommendations From Similar Users")
         
-        # Get top 5 artists for each user
+        # Calculate and display top artists for the selected user
+        user_artist_counts = df.groupby(['User', 'Artist']).size().reset_index(name='Count')
         top_artists_per_user = {}
         for user in df.User.unique():
             user_artists = user_artist_counts[user_artist_counts['User'] == user]
@@ -337,7 +429,7 @@ with tab2:
         # Get top 5 artists for selected user
         selected_user_top_artists = top_artists_per_user.get(selected_user, [])
         
-        if len(selected_user_top_artists) > 0:
+        if selected_user_top_artists:
             # Find users who share top artists with the selected user
             connected_users = []
             similarity_scores = {}
@@ -351,480 +443,379 @@ with tab2:
                         # Calculate similarity score (number of shared artists)
                         similarity_scores[user] = len(shared_artists)
             
-            # Build the network graph
-            G = nx.Graph()
+            # Get songs from connected users who listen to your top artists
+            connected_user_songs = df[
+                (df['User'].isin(connected_users)) & 
+                (df['Artist'].isin(selected_user_top_artists))
+            ]
             
-            # Add the selected user node
-            G.add_node(selected_user, type="user", is_selected=True)
+            # Remove songs that the selected user has already listened to
+            selected_user_songs = set(user_df['Song'].unique())
+            new_songs = connected_user_songs[~connected_user_songs['Song'].isin(selected_user_songs)]
             
-            # Add artist nodes and edges from selected user to artists
-            for artist in selected_user_top_artists:
-                G.add_node(artist, type="artist")
-                G.add_edge(selected_user, artist)
+            # Get top 10 most popular songs among similar users that you haven't heard
+            top_songs = new_songs.groupby('Song').size().reset_index(name='Listen Count')
+            top_songs = top_songs.sort_values('Listen Count', ascending=False).head(10)
             
-            # Add other user nodes and their connections to the same artists
-            for user in connected_users:
-                G.add_node(user, type="user", is_selected=False)
-                user_artists = top_artists_per_user[user]
-                for artist in user_artists:
-                    if artist in selected_user_top_artists:
-                        # Only add edges to artists that the selected user also has in their top 5
-                        G.add_edge(user, artist)
+            # Add artist information to the top songs
+            song_artists = new_songs[['Song', 'Artist']].drop_duplicates()
+            top_songs = top_songs.merge(song_artists, on='Song', how='left')
             
-            # Create 3D visualization
-            # Generate random positions in 3D space
-            pos_3d = {}
+            # Create a combined string for display
+            top_songs['Song - Artist'] = top_songs['Song'] + ' - ' + top_songs['Artist']
             
-            # Position the selected user prominently
-            pos_3d[selected_user] = (0, 0, 0)
+            if not top_songs.empty:
+                # Create a horizontal bar chart
+                fig_top_songs = px.bar(
+                    top_songs,
+                    y='Song - Artist',
+                    x='Listen Count',
+                    color='Listen Count',
+                    color_continuous_scale='Oranges',
+                    orientation='h'
+                )
+                
+                fig_top_songs.update_layout(
+                    title="Songs you haven't heard yet, but similar users love!",
+                    xaxis_title="Number of Listens by Similar Users",
+                    yaxis_title="",
+                    yaxis={'categoryorder':'total ascending'},
+                    height=500
+                )
+                
+                st.plotly_chart(fig_top_songs, use_container_width=True)
+            else:
+                st.info("No new song recommendations found from similar users.")
+        else:
+            st.warning("No listening data found to make similarity-based recommendations.")
+
+    # ==========================================
+    # SECTION 3: Music Community Insights
+    # ==========================================
+    st.markdown("---")
+    st.header("🌐 Your Music Community")
+    
+    community_tab1, community_tab2 = st.tabs(["Similar Users", "Visualization Networks"])
+    
+    with community_tab1:
+        if similarity_scores:
+            # Sort users by similarity score
+            similar_users_df = pd.DataFrame({
+                'User': list(similarity_scores.keys()),
+                'Shared Artists': list(similarity_scores.values())
+            }).sort_values('Shared Artists', ascending=False).head(10)
             
-            # Position the artists in a circle around the selected user
-            r = 1.5  # Radius of the circle
-            num_artists = len(selected_user_top_artists)
-            for i, artist in enumerate(selected_user_top_artists):
-                theta = (2 * 3.14159 * i) / num_artists
-                pos_3d[artist] = (r * math.cos(theta), r * math.sin(theta), 0.5)
+            st.subheader("Users With Taste Similar To Yours")
             
-            # Position other users in a wider circle
-            r_users = 3.0
-            for i, user in enumerate(connected_users):
-                theta = (2 * 3.14159 * i) / (len(connected_users) or 1)  # Avoid division by zero
-                pos_3d[user] = (r_users * math.cos(theta), r_users * math.sin(theta), -0.5)
-            
-            # Create edges for the 3D plot
-            edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
-            for edge in G.edges():
-                x0, y0, z0 = pos_3d[edge[0]]
-                x1, y1, z1 = pos_3d[edge[1]]
-                edge_x_3d.extend([x0, x1, None])
-                edge_y_3d.extend([y0, y1, None])
-                edge_z_3d.extend([z0, z1, None])
-            
-            edge_trace_3d = go.Scatter3d(
-                x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
-                line=dict(width=1, color='#888'),
-                hoverinfo='none',
-                mode='lines'
+            # Create a bar chart
+            fig_similar_users = px.bar(
+                similar_users_df,
+                x='User', 
+                y='Shared Artists',
+                color='Shared Artists',
+                color_continuous_scale='Viridis',
+                labels={'Shared Artists': 'Number of Shared Top Artists'}
             )
             
-            # Create separate traces for different node types
-            # Selected user node (green)
-            selected_user_x = [pos_3d[selected_user][0]]
-            selected_user_y = [pos_3d[selected_user][1]]
-            selected_user_z = [pos_3d[selected_user][2]]
-            selected_user_trace = go.Scatter3d(
-                x=selected_user_x, y=selected_user_y, z=selected_user_z,
-                mode='markers+text',
-                marker=dict(size=15, color='green', line=dict(width=2, color='white')),
-                text=[f"👤 {selected_user} (YOU)"],
-                textposition="top center",
-                hoverinfo='text',
-                name='Selected User'
+            fig_similar_users.update_layout(
+                xaxis_title="User",
+                yaxis_title="Shared Top Artists",
+                yaxis_range=[0, 5],  # Max is 5 since we're looking at top 5 artists
+                height=400
             )
             
-            # Artist nodes (orange)
-            artist_x = [pos_3d[artist][0] for artist in selected_user_top_artists]
-            artist_y = [pos_3d[artist][1] for artist in selected_user_top_artists]
-            artist_z = [pos_3d[artist][2] for artist in selected_user_top_artists]
-            artist_text = [f"🎵 {artist}" for artist in selected_user_top_artists]
-            artist_trace = go.Scatter3d(
-                x=artist_x, y=artist_y, z=artist_z,
-                mode='markers+text',
-                marker=dict(size=12, color='orange', line=dict(width=1)),
-                text=artist_text,
-                textposition="bottom center",
-                hoverinfo='text',
-                name='Top Artists'
-            )
+            st.plotly_chart(fig_similar_users, use_container_width=True)
             
-            # Other user nodes (blue)
-            other_user_trace = None
-            if connected_users:
-                other_user_x = [pos_3d[user][0] for user in connected_users]
-                other_user_y = [pos_3d[user][1] for user in connected_users]
-                other_user_z = [pos_3d[user][2] for user in connected_users]
-                other_user_text = [f"👤 {user}" for user in connected_users]
-                other_user_trace = go.Scatter3d(
-                    x=other_user_x, y=other_user_y, z=other_user_z,
+            st.markdown("These users share your taste in artists! Connect with them to discover more music.")
+        else:
+            st.info("No users with similar tastes found.")
+    
+    with community_tab2:
+        st.subheader("Interactive Network Visualizations")
+        
+        network_choice = st.radio(
+            "Choose a network visualization:",
+            ["User-Artist Network", "Recommendation Network"],
+            horizontal=True
+        )
+        
+        if network_choice == "User-Artist Network":
+            # Display the User-Artist network visualization
+            if selected_user_top_artists and connected_users:
+                # Build the network graph as in your original code
+                # (Most of your original 3D network visualization code would go here)
+                G = nx.Graph()
+                
+                # Add the selected user node
+                G.add_node(selected_user, type="user", is_selected=True)
+                
+                # Add artist nodes and edges from selected user to artists
+                for artist in selected_user_top_artists:
+                    G.add_node(artist, type="artist")
+                    G.add_edge(selected_user, artist)
+                
+                # Add other user nodes and their connections to the same artists
+                for user in connected_users:
+                    G.add_node(user, type="user", is_selected=False)
+                    user_artists = top_artists_per_user[user]
+                    for artist in user_artists:
+                        if artist in selected_user_top_artists:
+                            # Only add edges to artists that the selected user also has in their top 5
+                            G.add_edge(user, artist)
+                
+                # Generate positions in 3D space (from your original code)
+                # Create 3D visualization (from your original code)
+                # (Your existing code for 3D positions and visualization)
+                
+                # Position the selected user prominently
+                pos_3d = {}
+                pos_3d[selected_user] = (0, 0, 0)
+                
+                # Position the artists in a circle around the selected user
+                r = 1.5  # Radius of the circle
+                num_artists = len(selected_user_top_artists)
+                for i, artist in enumerate(selected_user_top_artists):
+                    theta = (2 * 3.14159 * i) / num_artists
+                    pos_3d[artist] = (r * math.cos(theta), r * math.sin(theta), 0.5)
+                
+                # Position other users in a wider circle
+                r_users = 3.0
+                for i, user in enumerate(connected_users):
+                    theta = (2 * 3.14159 * i) / (len(connected_users) or 1)  # Avoid division by zero
+                    pos_3d[user] = (r_users * math.cos(theta), r_users * math.sin(theta), -0.5)
+                
+                # Create edges for the 3D plot
+                edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
+                for edge in G.edges():
+                    x0, y0, z0 = pos_3d[edge[0]]
+                    x1, y1, z1 = pos_3d[edge[1]]
+                    edge_x_3d.extend([x0, x1, None])
+                    edge_y_3d.extend([y0, y1, None])
+                    edge_z_3d.extend([z0, z1, None])
+                
+                edge_trace_3d = go.Scatter3d(
+                    x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
+                    line=dict(width=1, color='#888'),
+                    hoverinfo='none',
+                    mode='lines'
+                )
+                
+                # Create separate traces for different node types
+                # Selected user node (green)
+                selected_user_x = [pos_3d[selected_user][0]]
+                selected_user_y = [pos_3d[selected_user][1]]
+                selected_user_z = [pos_3d[selected_user][2]]
+                selected_user_trace = go.Scatter3d(
+                    x=selected_user_x, y=selected_user_y, z=selected_user_z,
                     mode='markers+text',
-                    marker=dict(size=10, color='blue', line=dict(width=1)),
-                    text=other_user_text,
+                    marker=dict(size=15, color='green', line=dict(width=2, color='white')),
+                    text=[f"👤 {selected_user} (YOU)"],
                     textposition="top center",
                     hoverinfo='text',
-                    name='Similar Users'
+                    name='Selected User'
                 )
-            
-            # Combine traces for the figure
-            traces = [edge_trace_3d, selected_user_trace, artist_trace]
-            if other_user_trace:
-                traces.append(other_user_trace)
-            
-            fig_3d = go.Figure(
-                data=traces,
-                layout=go.Layout(
-                    title='3D User-Artist Network: Who shares your musical taste?',
-                    showlegend=True,
-                    hovermode='closest',
-                    margin=dict(b=20, l=5, r=5, t=40),
-                    scene=dict(
-                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                
+                # Artist nodes (orange)
+                artist_x = [pos_3d[artist][0] for artist in selected_user_top_artists]
+                artist_y = [pos_3d[artist][1] for artist in selected_user_top_artists]
+                artist_z = [pos_3d[artist][2] for artist in selected_user_top_artists]
+                artist_text = [f"🎵 {artist}" for artist in selected_user_top_artists]
+                artist_trace = go.Scatter3d(
+                    x=artist_x, y=artist_y, z=artist_z,
+                    mode='markers+text',
+                    marker=dict(size=12, color='orange', line=dict(width=1)),
+                    text=artist_text,
+                    textposition="bottom center",
+                    hoverinfo='text',
+                    name='Top Artists'
+                )
+                
+                # Other user nodes (blue)
+                other_user_trace = None
+                if connected_users:
+                    other_user_x = [pos_3d[user][0] for user in connected_users]
+                    other_user_y = [pos_3d[user][1] for user in connected_users]
+                    other_user_z = [pos_3d[user][2] for user in connected_users]
+                    other_user_text = [f"👤 {user}" for user in connected_users]
+                    other_user_trace = go.Scatter3d(
+                        x=other_user_x, y=other_user_y, z=other_user_z,
+                        mode='markers+text',
+                        marker=dict(size=10, color='blue', line=dict(width=1)),
+                        text=other_user_text,
+                        textposition="top center",
+                        hoverinfo='text',
+                        name='Similar Users'
+                    )
+                
+                # Combine traces for the figure
+                traces = [edge_trace_3d, selected_user_trace, artist_trace]
+                if other_user_trace:
+                    traces.append(other_user_trace)
+                
+                fig_3d = go.Figure(
+                    data=traces,
+                    layout=go.Layout(
+                        title='Users Who Share Your Musical Taste',
+                        showlegend=True,
+                        hovermode='closest',
+                        margin=dict(b=20, l=5, r=5, t=40),
+                        scene=dict(
+                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                            zaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                        )
                     )
                 )
-            )
-            
-            # Show the figure in the Streamlit app
-            st.plotly_chart(fig_3d, use_container_width=True)
-            
-        else:
-            st.warning("No listening data found for the selected user.")
-
-    with col2b:
-    
-        st.write("### Users Most Similar To You")
-        
-        # Sort users by similarity score
-        similar_users_df = pd.DataFrame({
-            'User': list(similarity_scores.keys()),
-            'Shared Artists': list(similarity_scores.values())
-        }).sort_values('Shared Artists', ascending=False).head(10)
-        
-        # Create a bar chart
-        fig_similar_users = px.bar(
-            similar_users_df,
-            x='User', 
-            y='Shared Artists',
-            title='Top 10 Users With Similar Music Taste',
-            color='Shared Artists',
-            color_continuous_scale='Viridis',
-            labels={'Shared Artists': 'Number of Shared Top Artists'}
-        )
-        
-        fig_similar_users.update_layout(
-            xaxis_title="User",
-            yaxis_title="Shared Top Artists",
-            yaxis_range=[0, 5],  # Max is 5 since we're looking at top 5 artists
-        )
-        
-        st.plotly_chart(fig_similar_users, use_container_width=True)
-    
-    # Column 2: Chart showing top songs from similar users
-    with col2c:
-        st.write("### Song Recommendations Based on Similar Users")
-        
-        # Get songs from connected users who listen to your top artists
-        connected_user_songs = df[
-            (df['User'].isin(connected_users)) & 
-            (df['Artist'].isin(selected_user_top_artists))
-        ]
-        
-        # Remove songs that the selected user has already listened to
-        selected_user_songs = set(user_df['Song'].unique())
-        new_songs = connected_user_songs[~connected_user_songs['Song'].isin(selected_user_songs)]
-        
-        # Get top 10 most popular songs among similar users that you haven't heard
-        top_songs = new_songs.groupby('Song').size().reset_index(name='Listen Count')
-        top_songs = top_songs.sort_values('Listen Count', ascending=False).head(10)
-        
-        # Add artist information to the top songs
-        song_artists = new_songs[['Song', 'Artist']].drop_duplicates()
-        top_songs = top_songs.merge(song_artists, on='Song', how='left')
-        
-        # Create a combined string for display
-        top_songs['Song - Artist'] = top_songs['Song'] + ' - ' + top_songs['Artist']
-        
-        # Create a horizontal bar chart
-        fig_top_songs = px.bar(
-            top_songs,
-            y='Song - Artist',
-            x='Listen Count',
-            title='Top 10 Song Recommendations',
-            color='Listen Count',
-            color_continuous_scale='Oranges',
-            orientation='h'
-        )
-        
-        fig_top_songs.update_layout(
-            xaxis_title="Number of Listens by Similar Users",
-            yaxis_title="",
-            yaxis={'categoryorder':'total ascending'}
-        )
-        
-        st.plotly_chart(fig_top_songs, use_container_width=True)
-        
-        st.write("These are songs you haven't listened to yet, but are popular among users with similar taste!")
-        # st.write("### User-Song Interaction Network")
-
-        # df["Song_Artist"] = df["Song"] + " - " + df["Artist"]
-
-        # # Step 2: Count number of users per (Song, Artist)
-        # song_artist_user_count = df.groupby("Song_Artist")["User"].nunique()
-
-        # # Step 3: Filter (Song, Artist) pairs with at least 2 users
-        # valid_songs = song_artist_user_count[song_artist_user_count >= 2].index
-
-        # # Step 4: Filter DataFrame to keep only valid (Song, Artist) pairs
-        # filtered_df = df[df["Song_Artist"].isin(valid_songs)]
-
-        # user_songs = filtered_df[filtered_df["User"] == selected_user]["Song_Artist"].unique()
-
-        # # Filter interactions where at least one other user has listened to the same song
-        # sub_df = filtered_df[filtered_df["Song_Artist"].isin(user_songs)]
-
-        # if len(sub_df) > 1:
-        #     # Build Network Graph
-        #     G = nx.Graph()
-        #     for _, row in sub_df.iterrows():
-        #         G.add_node(row["User"], type="user")
-        #         G.add_node(row["Song_Artist"], type="song")
-        #         G.add_edge(row["User"], row["Song_Artist"])
-
-        #     # 3D Network Visualization
-        #     pos_3d = {node: (random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)) for node in G.nodes()}
-        #     edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
-        #     for edge in G.edges():
-        #         x0, y0, z0 = pos_3d[edge[0]]
-        #         x1, y1, z1 = pos_3d[edge[1]]
-        #         edge_x_3d.extend([x0, x1, None])
-        #         edge_y_3d.extend([y0, y1, None])
-        #         edge_z_3d.extend([z0, z1, None])
-
-        #     edge_trace_3d = go.Scatter3d(x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
-        #                                 line=dict(width=1, color='#888'), hoverinfo='none', mode='lines')
-
-        #     # Create separate traces for each node type
-        #     # Selected user node
-        #     selected_user_x = [pos_3d[selected_user][0]]
-        #     selected_user_y = [pos_3d[selected_user][1]]
-        #     selected_user_z = [pos_3d[selected_user][2]]
-        #     selected_user_text = [f"👤 {selected_user} (YOU)"]
-            
-        #     selected_user_trace = go.Scatter3d(
-        #         x=selected_user_x, y=selected_user_y, z=selected_user_z,
-        #         mode='markers+text',
-        #         marker=dict(size=15, color='green', line=dict(width=2, color='white')),
-        #         text=selected_user_text,
-        #         textposition="top center",
-        #         hoverinfo='text',
-        #         name='Selected User'
-        #     )
-            
-        #     # Other user nodes
-        #     other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
-        #     if other_users:
-        #         other_user_x = [pos_3d[node][0] for node in other_users]
-        #         other_user_y = [pos_3d[node][1] for node in other_users]
-        #         other_user_z = [pos_3d[node][2] for node in other_users]
-        #         other_user_text = [f"👤 {node}" for node in other_users]
                 
-        #         other_user_trace = go.Scatter3d(
-        #             x=other_user_x, y=other_user_y, z=other_user_z,
-        #             mode='markers+text',
-        #             marker=dict(size=12, color='blue', line=dict(width=1)),
-        #             text=other_user_text,
-        #             textposition="top center",
-        #             hoverinfo='text',
-        #             name='Other Users'
-        #         )
-        #     else:
-        #         other_user_trace = None
-            
-        #     # Song nodes
-        #     song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
-        #     song_x = [pos_3d[node][0] for node in song_nodes]
-        #     song_y = [pos_3d[node][1] for node in song_nodes]
-        #     song_z = [pos_3d[node][2] for node in song_nodes]
-        #     # Trim song names if they're too long
-        #     song_text = [f"🎵 {node[:20]}..." if len(node) > 20 else f"🎵 {node}" for node in song_nodes]
-            
-        #     song_trace = go.Scatter3d(
-        #         x=song_x, y=song_y, z=song_z,
-        #         mode='markers+text',
-        #         marker=dict(size=10, color='orange', line=dict(width=1)),
-        #         text=song_text,
-        #         textposition="bottom center",
-        #         hoverinfo='text',
-        #         name='Songs'
-        #     )
-
-        #     # Combine traces for the figure
-        #     traces = [edge_trace_3d, selected_user_trace, song_trace]
-        #     if other_user_trace:
-        #         traces.append(other_user_trace)
-
-        #     fig_3d = go.Figure(data=traces,
-        #                     layout=go.Layout(title='3D User-Song Network', 
-        #                                         showlegend=True,
-        #                                         hovermode='closest', 
-        #                                         margin=dict(b=20, l=5, r=5, t=40),
-        #                                         scene=dict(xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        #                                                 yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        #                                                 zaxis=dict(showgrid=False, zeroline=False, showticklabels=False))))
-
-        #     st.plotly_chart(fig_3d, use_container_width=True)
-        # else:
-        #     st.warning("No connections found for the selected user to display the network.")
-
-    st.markdown("---")
-    col3a, col3b = st.columns(2)
-    with col3a:
-        
-        st.subheader("🎧 Top 3 Recommended Songs")
-
-        # Show personalized recommendations
-        if selected_user in list(recommendations['username']):
-            st.success(f"Here are your **Top 3 Picks**, *{selected_user}* 🎵")
-
-            # Get the row corresponding to the selected user
-            user_row = recommendations[recommendations['username'] == selected_user].iloc[0]
-            
-            # Extract top 3 recommended songs
-            rec_list = [user_row['rec_1'], user_row['rec_2'], user_row['rec_3']]
-
-            # Use columns for cleaner layout
-            cols = st.columns(3)
-            for i, song in enumerate(rec_list):
-                with cols[i]:
-                    st.markdown(f"### #{i+1}")
-                    song_title = song.split(' - ')[0].strip()
-                    artist = song.split(' - ')[1].split('(score')[0].strip()
-                    score = song.split('score: ')[1].replace(')', '')
+                st.plotly_chart(fig_3d, use_container_width=True)
+                
+                with st.expander("How to use this visualization"):
+                    st.markdown("""
+                    - **Green node**: You
+                    - **Orange nodes**: Your top artists
+                    - **Blue nodes**: Other users who share your taste
+                    - **Lines**: Connections between users and artists
                     
-                    st.markdown(f"🎶 **{song_title}**")
-                    st.markdown(f"👤 *{artist}*")
-                    st.markdown(f"⭐ Score: `{score}`")
-
-        else:
-            st.warning(f"🚫 No recommendations found for **{selected_user}**.")
-
-    with col3b:
-        long_recs = recommendations.melt(id_vars="username", value_vars=["rec_1", "rec_2", "rec_3"], 
-                                    var_name="Rank", value_name="Full_Rec")
-
-        # Step 2: Extract Song and Artist
-        long_recs["Song"] = long_recs["Full_Rec"].apply(lambda x: x.split(" - ")[0].strip())
-        long_recs["Artist"] = long_recs["Full_Rec"].apply(lambda x: x.split(" - ")[1].split("(score")[0].strip())
-        long_recs["Song_Artist"] = long_recs["Song"] + " - " + long_recs["Artist"]
-        long_recs.rename(columns={"username": "User"}, inplace=True)
-
-        # Step 3: Count number of users per song
-        song_user_count = long_recs.groupby("Song_Artist")["User"].nunique()
-
-        # Step 4: Keep only songs recommended to at least 2 users
-        valid_songs = song_user_count[song_user_count >= 2].index
-        filtered_df = long_recs[long_recs["Song_Artist"].isin(valid_songs)]
-
-        # Step 5: Filter only songs connected to the selected user
-        user_songs = filtered_df[filtered_df["User"] == selected_user]["Song_Artist"].unique()
-        sub_df = filtered_df[filtered_df["Song_Artist"].isin(user_songs)]
-
-        # Step 6: Build and visualize network
-        st.markdown("### 🌐 User-Song Recommendation Network")
-
-        if len(sub_df) > 1:
-            G = nx.Graph()
-
-            for _, row in sub_df.iterrows():
-                G.add_node(row["User"], type="user")
-                G.add_node(row["Song_Artist"], type="song")
-                G.add_edge(row["User"], row["Song_Artist"])
-
-            # Random 3D positions
-            pos_3d = {node: (random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)) for node in G.nodes()}
-
-            edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
-            for edge in G.edges():
-                x0, y0, z0 = pos_3d[edge[0]]
-                x1, y1, z1 = pos_3d[edge[1]]
-                edge_x_3d.extend([x0, x1, None])
-                edge_y_3d.extend([y0, y1, None])
-                edge_z_3d.extend([z0, z1, None])
-
-            edge_trace_3d = go.Scatter3d(
-                x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
-                line=dict(width=1, color='#888'),
-                hoverinfo='none',
-                mode='lines'
-            )
-
-            # Create separate traces for different node types
-            # Selected user node
-            selected_user_x = [pos_3d[selected_user][0]]
-            selected_user_y = [pos_3d[selected_user][1]]
-            selected_user_z = [pos_3d[selected_user][2]]
-            selected_user_text = [f"👤 {selected_user} (YOU)"]
-            
-            selected_user_trace = go.Scatter3d(
-                x=selected_user_x, y=selected_user_y, z=selected_user_z,
-                mode='markers+text',
-                marker=dict(size=15, color='green', line=dict(width=2, color='white')),
-                text=selected_user_text,
-                textposition="top center",
-                hoverinfo='text',
-                name='Selected User'
-            )
-            
-            # Other user nodes
-            other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
-            if other_users:
-                other_user_x = [pos_3d[node][0] for node in other_users]
-                other_user_y = [pos_3d[node][1] for node in other_users]
-                other_user_z = [pos_3d[node][2] for node in other_users]
-                other_user_text = [f"👤 {node}" for node in other_users]
+                    You can rotate, zoom, and pan the visualization to explore connections.
+                    """)
+            else:
+                st.info("Not enough data to create a User-Artist network.")
                 
-                other_user_trace = go.Scatter3d(
-                    x=other_user_x, y=other_user_y, z=other_user_z,
+        else:  # Recommendation Network
+            # Display the Recommendation Network visualization
+            long_recs = recommendations.melt(id_vars="username", value_vars=["rec_1", "rec_2", "rec_3"], 
+                                        var_name="Rank", value_name="Full_Rec")
+
+            # Extract Song and Artist
+            long_recs["Song"] = long_recs["Full_Rec"].apply(lambda x: x.split(" - ")[0].strip())
+            long_recs["Artist"] = long_recs["Full_Rec"].apply(lambda x: x.split(" - ")[1].split("(score")[0].strip())
+            long_recs["Song_Artist"] = long_recs["Song"] + " - " + long_recs["Artist"]
+            long_recs.rename(columns={"username": "User"}, inplace=True)
+
+            # Count number of users per song
+            song_user_count = long_recs.groupby("Song_Artist")["User"].nunique()
+
+            # Keep only songs recommended to at least 2 users
+            valid_songs = song_user_count[song_user_count >= 2].index
+            filtered_df = long_recs[long_recs["Song_Artist"].isin(valid_songs)]
+
+            # Filter only songs connected to the selected user
+            user_songs = filtered_df[filtered_df["User"] == selected_user]["Song_Artist"].unique()
+            sub_df = filtered_df[filtered_df["Song_Artist"].isin(user_songs)]
+
+            if len(sub_df) > 1:
+                # Your original code for the recommendation network visualization
+                G = nx.Graph()
+
+                for _, row in sub_df.iterrows():
+                    G.add_node(row["User"], type="user")
+                    G.add_node(row["Song_Artist"], type="song")
+                    G.add_edge(row["User"], row["Song_Artist"])
+
+                # Random 3D positions
+                pos_3d = {node: (random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)) for node in G.nodes()}
+
+                edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
+                for edge in G.edges():
+                    x0, y0, z0 = pos_3d[edge[0]]
+                    x1, y1, z1 = pos_3d[edge[1]]
+                    edge_x_3d.extend([x0, x1, None])
+                    edge_y_3d.extend([y0, y1, None])
+                    edge_z_3d.extend([z0, z1, None])
+
+                edge_trace_3d = go.Scatter3d(
+                    x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
+                    line=dict(width=1, color='#888'),
+                    hoverinfo='none',
+                    mode='lines'
+                )
+
+                # Create separate traces for different node types
+                # Selected user node
+                selected_user_x = [pos_3d[selected_user][0]]
+                selected_user_y = [pos_3d[selected_user][1]]
+                selected_user_z = [pos_3d[selected_user][2]]
+                selected_user_text = [f"👤 {selected_user} (YOU)"]
+                
+                selected_user_trace = go.Scatter3d(
+                    x=selected_user_x, y=selected_user_y, z=selected_user_z,
                     mode='markers+text',
-                    marker=dict(size=12, color='royalblue', line=dict(width=1)),
-                    text=other_user_text,
+                    marker=dict(size=15, color='green', line=dict(width=2, color='white')),
+                    text=selected_user_text,
                     textposition="top center",
                     hoverinfo='text',
-                    name='Other Users'
+                    name='Selected User'
                 )
+                
+                # Other user nodes
+                other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
+                if other_users:
+                    other_user_x = [pos_3d[node][0] for node in other_users]
+                    other_user_y = [pos_3d[node][1] for node in other_users]
+                    other_user_z = [pos_3d[node][2] for node in other_users]
+                    other_user_text = [f"👤 {node}" for node in other_users]
+                    
+                    other_user_trace = go.Scatter3d(
+                        x=other_user_x, y=other_user_y, z=other_user_z,
+                        mode='markers+text',
+                        marker=dict(size=12, color='royalblue', line=dict(width=1)),
+                        text=other_user_text,
+                        textposition="top center",
+                        hoverinfo='text',
+                        name='Other Users'
+                    )
+                else:
+                    other_user_trace = None
+                
+                # Song nodes
+                song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
+                song_x = [pos_3d[node][0] for node in song_nodes]
+                song_y = [pos_3d[node][1] for node in song_nodes]
+                song_z = [pos_3d[node][2] for node in song_nodes]
+                # Trim song names if they're too long
+                song_text = [f"🎵 {node[:20]}..." if len(node) > 20 else f"🎵 {node}" for node in song_nodes]
+                
+                song_trace = go.Scatter3d(
+                    x=song_x, y=song_y, z=song_z,
+                    mode='markers+text',
+                    marker=dict(size=10, color='gold', line=dict(width=1)),
+                    text=song_text,
+                    textposition="bottom center",
+                    hoverinfo='text',
+                    name='Songs'
+                )
+
+                # Combine traces for the figure
+                traces = [edge_trace_3d, selected_user_trace, song_trace]
+                if other_user_trace:
+                    traces.append(other_user_trace)
+
+                fig_3d = go.Figure(data=traces,
+                                layout=go.Layout(
+                                    title=f'Users who received the same song recommendations as you',
+                                    showlegend=True,
+                                    hovermode='closest',
+                                    margin=dict(b=20, l=5, r=5, t=40),
+                                    scene=dict(
+                                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                                    )
+                                ))
+
+                st.plotly_chart(fig_3d, use_container_width=True)
+                
+                with st.expander("How to use this visualization"):
+                    st.markdown("""
+                    - **Green node**: You
+                    - **Gold nodes**: Recommended songs
+                    - **Blue nodes**: Other users who received the same recommendations
+                    - **Lines**: Connections between users and their song recommendations
+                    
+                    This visualization shows which of your recommended songs are also recommended to other users!
+                    """)
             else:
-                other_user_trace = None
-            
-            # Song nodes
-            song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
-            song_x = [pos_3d[node][0] for node in song_nodes]
-            song_y = [pos_3d[node][1] for node in song_nodes]
-            song_z = [pos_3d[node][2] for node in song_nodes]
-            # Trim song names if they're too long
-            song_text = [f"🎵 {node[:20]}..." if len(node) > 20 else f"🎵 {node}" for node in song_nodes]
-            
-            song_trace = go.Scatter3d(
-                x=song_x, y=song_y, z=song_z,
-                mode='markers+text',
-                marker=dict(size=10, color='gold', line=dict(width=1)),
-                text=song_text,
-                textposition="bottom center",
-                hoverinfo='text',
-                name='Songs'
-            )
-
-            # Combine traces for the figure
-            traces = [edge_trace_3d, selected_user_trace, song_trace]
-            if other_user_trace:
-                traces.append(other_user_trace)
-
-            fig_3d = go.Figure(data=traces,
-                            layout=go.Layout(
-                                title=f'3D Network for {selected_user} & Shared Recommendations',
-                                showlegend=True,
-                                hovermode='closest',
-                                margin=dict(b=20, l=5, r=5, t=40),
-                                scene=dict(
-                                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                    zaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-                                )
-                            ))
-
-            st.plotly_chart(fig_3d, use_container_width=True)
-
-        else:
-            st.info("No overlapping recommended songs with other users were found.")
+                st.info("No overlapping recommended songs with other users were found.")
 
 
 
