@@ -54,9 +54,9 @@ finally:
 
     # === LOAD MAPPINGS ===
     try:
-        with open("../lightgcn/data/music/id2user.json") as f: # might have to double check dir paths
+        with open("..src/lightgcn/data/music/id2user.json") as f: # might have to double check dir paths
             id2user = json.load(f)
-        with open("../lightgcn/data/music/id2track.json") as f: # might have to double check dir paths
+        with open("..src/lightgcn/data/music/id2track.json") as f: # might have to double check dir paths
             id2track = json.load(f)
     except Exception as e:
         print("❌ Failed to load id2user or id2track mapping files:", e)
