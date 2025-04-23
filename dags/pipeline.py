@@ -130,22 +130,33 @@ def train_lgcn(**kwargs):
 
 def predict_lgcn(**kwargs):
     weight_file = kwargs['ti'].xcom_pull(task_ids='train_lightgcn', key='trained_model_path')
-    print(f"Trained model file path: {weight_file}")
+    print(f"[predict_lgcn] Loading weights from: {weight_file}")
     sys.path.append(os.path.abspath("src/lightgcn/code"))
 
     import world
     import model
     import register
+    import json
+    from src.database.db_utils import RecommendationDB
 
-    
     # loading the dataset and model
     dataset = register.dataset
     Recmodel = register.MODELS[world.model_name](world.config, dataset).to(world.device)
 
-    #loading the trianed weights in checkpoints/ folder
-    print(f"[predict_lgcn] Loading weights from: {weight_file}")
+    # loading the trained weights in checkpoints/ folder
     Recmodel.load_state_dict(torch.load(weight_file, map_location=world.device))
     Recmodel.eval()
+
+    # Load id mappings
+    try:
+        with open("src/lightgcn/data/music/id2user.json") as f:
+            id2user = json.load(f)
+        with open("src/lightgcn/data/music/id2track.json") as f:
+            id2track = json.load(f)
+        print("✅ Successfully loaded id mapping files")
+    except Exception as e:
+        print("❌ Failed to load id mapping files:", e)
+        id2user, id2track = {}, {}
 
     # formulate predictions
     users = torch.arange(dataset.n_users, device=world.device)
@@ -156,16 +167,39 @@ def predict_lgcn(**kwargs):
     top_k = 10
     top_scores, top_items = torch.topk(scores, k=top_k, dim=1)
 
+    # Initialize database connection
+    db = RecommendationDB()
+    
+    # Prepare recommendations
     results = []
     for uid, (items, scores) in enumerate(zip(top_items.tolist(), top_scores.tolist())):
+        username = id2user.get(str(uid), f"User_{uid}")
         for iid, score in zip(items, scores):
-            results.append((uid, iid, score))
-
-    df = pd.DataFrame(results, columns=["user_id", "item_id", "score"])
-    out_path = "/opt/airflow/outputs/predictions.csv"       # assuming this is where we want to store the res
-    df.to_csv(out_path, index=False)
-    print(f"[predict_lgcn] Wrote predictions to {out_path}")
-
+            track_name = id2track.get(str(iid), f"Item_{iid}")
+            results.append({
+                'user': username,
+                'track': track_name,
+                'score': float(score)  # Convert torch tensor to float
+            })
+    
+    # Save to database
+    try:
+        batch_id = db.save_recommendations(results)
+        print(f"[predict_lgcn] Saved {len(results)} recommendations to database with batch_id: {batch_id}")
+        
+        # Print sample recommendations for verification
+        sample_user = results[0]['user']
+        sample_recs = db.get_user_recommendations(sample_user, limit=5)
+        print(f"\nSample recommendations for user {sample_user}:")
+        for track, score, timestamp in sample_recs:
+            print(f"- {track}: {score:.3f}")
+        
+        # Save batch_id to XCom for potential downstream tasks
+        kwargs['ti'].xcom_push(key='recommendation_batch_id', value=batch_id)
+        
+    except Exception as e:
+        print(f"Error saving recommendations to database: {e}")
+        raise
 
 
 # Initialize the DAG
