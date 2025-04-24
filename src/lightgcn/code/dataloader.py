@@ -68,7 +68,7 @@ class BasicDataset(Dataset):
         raise NotImplementedError
 
 class MusicDataset(BasicDataset):
-    def __init__(self, path=os.path.abspath("../lightgcn/data/music")): # might have to double check dir paths
+    def __init__(self, path=os.path.abspath("src/lightgcn/data/music")): # might have to double check dir paths
         cprint("loading [music]")
         self.mode_dict = {'train': 0, "test": 1}
         self.mode = self.mode_dict['train']
