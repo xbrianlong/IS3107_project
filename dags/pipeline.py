@@ -12,30 +12,24 @@ sys.path.insert(0, project_root)
 
 from src.data.data_extraction import (
     get_top_tracks,
-    filter_out_global_songs,
     convert_to_lightgcn_format,
     split_lightgcn_train_test
 )
 
-#OUTPUT_DIR = os.path.join(project_root, 'outputs')
-
 def get_top_tracks_task(**kwargs):
-    output_file = get_top_tracks() # --> get_top_tracks_returns a filepath
-    kwargs['ti'].xcom_push(key='top_tracks_filepath', value=output_file)  
-
-def filter_task(**kwargs):
-    # Get the output file from the previous task
-    top_tracks_file = kwargs['ti'].xcom_pull(task_ids='fetch_top_tracks', key='top_tracks_filepath')
-    print(f"Top tracks file path: {top_tracks_file}")
-    filtered_out_global_songs= filter_out_global_songs(top_tracks_file)[1]
-    #filtered_out_global_songs_df.to_csv(output_filepath, index=False)
-    kwargs['ti'].xcom_push(key='filtered_global_songs', value=filtered_out_global_songs)       
+    from src.database.db_utils import MusicDB
+    db = MusicDB()
+    output_file = get_top_tracks(db_instance=db)
+    kwargs['ti'].xcom_push(key='top_tracks_filepath', value=output_file)
 
 def convert_task(**kwargs):
-    filtered_file = kwargs['ti'].xcom_pull(task_ids='filter_global_songs', key='filtered_global_songs')
-    print(f"Filtered file path: {filtered_file}")
+    from src.database.db_utils import MusicDB
     output_path = os.path.join(project_root, 'lightgcn/data/music')
-    convert_to_lightgcn_format(csv_path=filtered_file, output_dir=output_path)
+    db = MusicDB()
+    convert_to_lightgcn_format(
+        db_instance=db,
+        output_dir=output_path
+    )
 
 def split_task(**kwargs):
     input_path = os.path.join(project_root, 'lightgcn/data/music/user_track_interactions.txt')
@@ -44,7 +38,6 @@ def split_task(**kwargs):
 
 def train_lgcn(**kwargs):
     import time
-
     sys.path.append(os.path.abspath("src/lightgcn/code"))
 
     import world
@@ -54,40 +47,36 @@ def train_lgcn(**kwargs):
     import Procedure
 
     config = {
-            'bpr_batch': 2048,
-            'recdim': 64,
-            'layer': 3,
-            'lr': 0.001,
-            'decay': 1e-4,
-            'dropout': 0,
-            'keep_prob': 0.6,
-            'a_fold': 100,
-            'testbatch': 100,
-            'dataset': 'music',
-            'path': os.path.abspath("src/lightgcn/data"),  # Point to src/lightgcn/data
-            'topks': [20],  # Match world.py
-            'tensorboard': 1,
-            'comment': 'lightgcn',
-            'load': 0,
-            'epochs': 1000,
-            'multicore': 0,
-            'pretrain': 0,
-            'seed': 2020,
-            'model': 'lgn',
-            'batch_size': 4096,
-            'bpr_batch_size': 2048,
-            'latent_dim_rec': 64,
-            'lightGCN_n_layers': 3,
-            'A_n_fold': 100,
-            'test_u_batch_size': 100,
-            'A_split': False,
-            'bigdata': False,
-        }
-    print(f"Current working directory: {os.getcwd()}")
-    print(f"Config path: {config['path']}")
-    print(f"Train file exists: {os.path.exists(os.path.join(config['path'], 'music', 'train.txt'))}")
-    
-    # Update world.config with the custom configuration
+        'bpr_batch': 2048,
+        'recdim': 64,
+        'layer': 3,
+        'lr': 0.001,
+        'decay': 1e-4,
+        'dropout': 0,
+        'keep_prob': 0.6,
+        'a_fold': 100,
+        'testbatch': 100,
+        'dataset': 'music',
+        'path': os.path.abspath("src/lightgcn/data"),
+        'topks': [20],
+        'tensorboard': 1,
+        'comment': 'lightgcn',
+        'load': 0,
+        'epochs': 1000,
+        'multicore': 0,
+        'pretrain': 0,
+        'seed': 2020,
+        'model': 'lgn',
+        'batch_size': 4096,
+        'bpr_batch_size': 2048,
+        'latent_dim_rec': 64,
+        'lightGCN_n_layers': 3,
+        'A_n_fold': 100,
+        'test_u_batch_size': 100,
+        'A_split': False,
+        'bigdata': False,
+    }
+
     world.config = config
     world.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     world.model_name = config['model']
@@ -98,114 +87,88 @@ def train_lgcn(**kwargs):
     world.LOAD = config['load']
     world.comment = config['comment']
     world.seed = config['seed']
-    
-    #setting up model & data
+
     dataset = register.dataset
     Recmodel = register.MODELS[world.model_name](world.config, dataset).to(world.device)
     bpr_loss = utils.BPRLoss(Recmodel, world.config)
-
     weight_file = utils.getFileName()
-    print(f"Training LightGCN model... Saving to {weight_file}")
-    print(f"World tensorboard: {world.tensorboard}")
 
-    if world.tensorboard:
-        w: SummaryWriter = SummaryWriter(
-            os.path.join(world.BOARD_PATH, time.strftime("%m-%d-%Hh%Mm%Ss-") + "-" + world.comment)
-        )
-    else:
-        w = None
-        world.cprint("not enable tensorflowboard")
+    w = SummaryWriter(os.path.join(world.BOARD_PATH, time.strftime("%m-%d-%Hh%Mm%Ss-") + "-" + world.comment)) if world.tensorboard else None
 
     for epoch in range(world.TRAIN_epochs):
-        start = time.time()
         if epoch % 10 == 0:
-            print(f"[TEST] Epoch {epoch}")
             Procedure.Test(dataset, Recmodel, epoch, w=w, multicore=world.config['multicore'])
 
         output_info = Procedure.BPR_train_original(dataset, Recmodel, bpr_loss, epoch, neg_k=1, w=w)
         print(f"[{epoch+1}/{world.TRAIN_epochs}] {output_info}")
         torch.save(Recmodel.state_dict(), weight_file)
-    kwargs['ti'].xcom_push(key='trained_model_path', value=weight_file)  
+
+    kwargs['ti'].xcom_push(key='trained_model_path', value=weight_file)
     print("Training complete.")
 
 def predict_lgcn(**kwargs):
     weight_file = kwargs['ti'].xcom_pull(task_ids='train_lightgcn', key='trained_model_path')
-    print(f"[predict_lgcn] Loading weights from: {weight_file}")
     sys.path.append(os.path.abspath("src/lightgcn/code"))
 
     import world
     import model
     import register
-    import json
-    from src.database.db_utils import RecommendationDB
+    from src.database.db_utils import MusicDB
 
-    # loading the dataset and model
+    db = MusicDB()
+
     dataset = register.dataset
     Recmodel = register.MODELS[world.model_name](world.config, dataset).to(world.device)
-
-    # loading the trained weights in checkpoints/ folder
     Recmodel.load_state_dict(torch.load(weight_file, map_location=world.device))
     Recmodel.eval()
 
-    # Load id mappings
-    try:
-        with open("src/lightgcn/data/music/id2user.json") as f:
-            id2user = json.load(f)
-        with open("src/lightgcn/data/music/id2track.json") as f:
-            id2track = json.load(f)
-        print("✅ Successfully loaded id mapping files")
-    except Exception as e:
-        print("❌ Failed to load id mapping files:", e)
-        id2user, id2track = {}, {}
-
-    # formulate predictions
     users = torch.arange(dataset.n_users, device=world.device)
     with torch.no_grad():
         scores = Recmodel.getUsersRating(users)
 
-    # get the top 10 songs
-    top_k = 10
+    top_k = 5
     top_scores, top_items = torch.topk(scores, k=top_k, dim=1)
 
-    # Initialize database connection
-    db = RecommendationDB()
-    
-    # Prepare recommendations
     results = []
     for uid, (items, scores) in enumerate(zip(top_items.tolist(), top_scores.tolist())):
-        username = id2user.get(str(uid), f"User_{uid}")
+        username = db.get_username_by_id(uid + 1)
+        if not username:
+            print(f"Warning: No username found for user_id {uid + 1}")
+            continue
+
+        user_id = db.insert_or_get_user(username)
+        user_recs = []
+
         for iid, score in zip(items, scores):
-            track_name = id2track.get(str(iid), f"Item_{iid}")
-            results.append({
-                'user': username,
-                'track': track_name,
-                'score': float(score)  # Convert torch tensor to float
+            song_info = db.get_song_by_id(iid + 1)
+            if not song_info:
+                print(f"Warning: No song found for song_id {iid + 1}")
+                continue
+
+            song_id = db.insert_or_get_song(song_info['name'], song_info['artist'])
+            user_recs.append({
+                'user_id': user_id,
+                'song_id': song_id,
+                'rank': 0,
+                'score': float(score)
             })
-    
-    # Save to database
+
+        user_recs.sort(key=lambda x: x['score'], reverse=True)
+        for rank, rec in enumerate(user_recs, 1):
+            rec['rank'] = rank
+            results.append(rec)
+
     try:
         batch_id = db.save_recommendations(results)
-        print(f"[predict_lgcn] Saved {len(results)} recommendations to database with batch_id: {batch_id}")
-        
-        # Print sample recommendations for verification
-        sample_user = results[0]['user']
-        sample_recs = db.get_user_recommendations(sample_user, limit=5)
-        print(f"\nSample recommendations for user {sample_user}:")
-        for track, score, timestamp in sample_recs:
-            print(f"- {track}: {score:.3f}")
-        
-        # Save batch_id to XCom for potential downstream tasks
         kwargs['ti'].xcom_push(key='recommendation_batch_id', value=batch_id)
-        
+        print(f"[predict_lgcn] Saved {len(results)} recommendations to database with batch_id: {batch_id}")
     except Exception as e:
-        print(f"Error saving recommendations to database: {e}")
+        print(f"Error saving recommendations: {e}")
         raise
 
-
-# Initialize the DAG
 with DAG(
     'IS3107_Project',
-    description='Process Last.fm user tracks and prepare for LightGCN',
+    description='Process Last.fm user tracks and train LightGCN',
     schedule_interval=timedelta(days=7),
     start_date=datetime(2025, 4, 1),
     catchup=False,
@@ -216,38 +179,27 @@ with DAG(
         python_callable=get_top_tracks_task,
     )
 
-    # Task 2: Filter out global top songs
-
-    filter_global_songs = PythonOperator(
-        task_id='filter_global_songs',
-        python_callable=filter_task,
-    )
-
     convert_to_lightgcn = PythonOperator(
         task_id='convert_to_lightgcn',
         python_callable=convert_task,
         provide_context=True,
     )
 
-    # Task 4: Split into train/test sets
     split_train_test = PythonOperator(
         task_id='split_train_test',
-        python_callable=split_lightgcn_train_test,
+        python_callable=split_task,
     )
 
     train_task = PythonOperator(
         task_id="train_lightgcn",
         python_callable=train_lgcn,
         provide_context=True,
-        dag=dag
     )
 
     predict_lightgcn = PythonOperator(
         task_id="predict_lightgcn",
         python_callable=predict_lgcn,
-        dag=dag,
+        provide_context=True,
     )
 
-
-    # Define task dependencies
-    fetch_top_tracks >> filter_global_songs >> convert_to_lightgcn >> split_train_test >> train_task >> predict_lightgcn
+    fetch_top_tracks >> convert_to_lightgcn >> split_train_test >> train_task >> predict_lightgcn
