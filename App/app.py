@@ -284,59 +284,28 @@ with tab2:
     rec_tab1, rec_tab2 = st.tabs(["AI Top Picks", "Community Recommendations"])
     
     with rec_tab1:
-        # Show personalized recommendations using the music_db.get_user_recommendations function
+    # Show personalized recommendations using the music_db.get_user_recommendations function
         user_recommendations = music_db.get_user_recommendations(selected_user, limit=10)
-        
         if user_recommendations:
             # Display recommendations in a more visually appealing way
             st.subheader("🤖 AI-Generated Song Recommendations")
             
+            # Sort by score (descending)
+            sorted_recommendations = sorted(user_recommendations[:8], key=lambda x: x[4], reverse=True)
+            
             # Use columns for cleaner layout - display up to 5 recommendations
-            cols = st.columns(min(5, len(user_recommendations)))
-            for i, rec in enumerate(user_recommendations[:5]):
+            cols = st.columns(min(8, len(sorted_recommendations)))
+            for i, rec in enumerate(sorted_recommendations):
                 song_name, artist_name, album_name, rank, score, generated_at = rec
                 
                 with cols[i]:
-                    st.markdown(f"### #{rank}")
+                    st.markdown(f"### #{i+1}")
                     st.markdown(f"🎶 **{song_name}**")
                     st.markdown(f"👤 *{artist_name}*")
                     if album_name:
                         st.markdown(f"💿 *Album:* {album_name}")
-                    
             
             # If there are more than 5 recommendations, display them in a table
-            if len(user_recommendations) > 5:
-                with st.expander("🔍 View more recommendations"):
-                    rec_data = []
-                    for rec in user_recommendations[5:]:
-                        song_name, artist_name, album_name, rank, score, generated_at = rec
-                        rec_data.append({
-                            "Rank": rank,
-                            "Song": song_name,
-                            "Artist": artist_name,
-                            "Album": album_name if album_name else "-",
-                            "Score": f"{score:.2f}",
-                            "Generated": pd.to_datetime(generated_at).strftime("%Y-%m-%d") if generated_at else "-"
-                        })
-                    
-                    rec_df = pd.DataFrame(rec_data)
-                    
-                    st.dataframe(
-                        rec_df,
-                        column_config={
-                            "Rank": st.column_config.NumberColumn(format="%d"),
-                            "Score": st.column_config.ProgressColumn(
-                                "Match Score",
-                                help="How well this song matches your taste profile",
-                                format="%.2f",
-                                min_value=0,
-                                max_value=1,
-                            ),
-                            "Generated": st.column_config.DateColumn("Date Generated")
-                        },
-                        hide_index=True,
-                        use_container_width=True
-                    )
         else:
             st.warning(f"No personalized recommendations found for {selected_user}.")
 
@@ -388,7 +357,7 @@ with tab2:
             top_songs = top_songs.merge(song_artists, on='Song', how='left')
             
             # Create a combined string for display
-            top_songs['Song - Artist'] = top_songs['Song'] + ' - ' + top_songs['Artist']
+            top_songs['Song - Artist'] = top_songs['Song'] + " (" + top_songs['Artist'] + ")"
             
             if not top_songs.empty:
                 # Create a horizontal bar chart
