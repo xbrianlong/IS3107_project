@@ -5,14 +5,18 @@ import requests
 import time
 from datetime import datetime
 import os
+import sys
+
+# Add project root to path and get absolute paths
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, project_root)
 
 from config.settings import LASTFM_API_KEY, LASTFM_BASE_URL, TOP_GLOBAL_SONGS_URL
 from src.database.db_utils import MusicDB
 
-API_KEY = "9285c225124a467ccf14911a4389058f"
+API_KEY = LASTFM_API_KEY
 BASE_URL = LASTFM_BASE_URL
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(SCRIPT_DIR, 'raw_data')
+DATA_DIR = os.path.join(project_root, 'src', 'data', 'raw_data')
 INPUT_CSV = os.path.join(DATA_DIR, 'lastfm_active_users.csv')
 
 def get_lastfm_users(filename):
@@ -129,36 +133,68 @@ def filter_out_global_songs(user_data_df):
 
 
 def convert_to_lightgcn_format(
-    output_dir='lightgcn/data/music',
+    output_dir=None,
     interaction_filename='user_track_interactions.txt',
     db_instance=None
 ):
+    if output_dir is None:
+        output_dir = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music')
+    
     if db_instance is None:
         db_instance = MusicDB()
 
+    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
+
+    interaction_path = os.path.join(output_dir, interaction_filename)
+    if os.path.exists(interaction_path):
+        os.remove(interaction_path)
 
     # Query all user-song interactions directly from the DB
     interactions = db_instance.get_all_user_song_interactions()
+    print(f"Found {len(interactions)} interactions in database")
+
+    if not interactions:
+        print("Warning: No interactions found in database!")
+        return
 
     # Convert to LightGCN 0-indexed format
     interaction_path = os.path.join(output_dir, interaction_filename)
-    with open(interaction_path, 'w') as f:
-        for user_id, song_id in interactions:
-            f.write(f"{user_id - 1} {song_id - 1}\n")
+    
+    try:
+        with open(interaction_path, 'w') as f:
+            for user_id, song_id in interactions:
+                f.write(f"{user_id - 1} {song_id - 1}\n")
+        print(f"Successfully wrote interactions to: {interaction_path}")
+        
+    except Exception as e:
+        print(f"Error writing files: {e}")
+        raise
 
-    print(f"Success: Interactions written to {interaction_path}")
+    return interaction_path
 
 
 def split_lightgcn_train_test(
-    input_path='lightgcn/data/music/user_track_interactions.txt',
-    output_dir='lightgcn/data/music',
+    input_path=None,
+    output_dir=None,
     train_filename='train.txt',
     test_filename='test.txt',
     test_ratio=0.2,
     random_state=42
 ):
+    if input_path is None:
+        input_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music', 'user_track_interactions.txt')
+    if output_dir is None:
+        output_dir = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music')
+
     from sklearn.model_selection import train_test_split
+
+    os.makedirs(output_dir, exist_ok=True)
+    train_path = os.path.join(output_dir, train_filename)
+    test_path = os.path.join(output_dir, test_filename)
+    for path in [train_path, test_path]:
+        if os.path.exists(path):
+            os.remove(path)
 
     df = pd.read_csv(input_path, sep=' ', names=['user', 'item'])
     train_rows, test_rows = [], []

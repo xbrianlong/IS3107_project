@@ -24,16 +24,22 @@ def get_top_tracks_task(**kwargs):
 
 def convert_task(**kwargs):
     from src.database.db_utils import MusicDB
-    output_path = os.path.join(project_root, 'lightgcn/data/music')
+    output_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music')
+    print(f"Writing files to: {output_path}")
     db = MusicDB()
+    
+    # Get database stats before conversion
+    stats = db.get_db_stats()
+    print(f"Database stats before conversion: {stats}")
+    
     convert_to_lightgcn_format(
         db_instance=db,
         output_dir=output_path
     )
 
 def split_task(**kwargs):
-    input_path = os.path.join(project_root, 'lightgcn/data/music/user_track_interactions.txt')
-    output_dir = os.path.join(project_root, 'lightgcn/data/music')
+    input_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music', 'user_track_interactions.txt')
+    output_dir = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music')
     split_lightgcn_train_test(input_path=input_path, output_dir=output_dir)
 
 def train_lgcn(**kwargs):
