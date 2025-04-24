@@ -14,12 +14,11 @@ class MusicDB:
 
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS songs (
-                    song_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    song_id INTEGER PRIMARY KEY,
                     song_name TEXT NOT NULL,
                     artist_name TEXT NOT NULL,
                     album_name TEXT,
                     genre TEXT,
-                    song_length INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(song_name, artist_name)
                 )
@@ -27,7 +26,7 @@ class MusicDB:
 
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER PRIMARY KEY,
                     username TEXT NOT NULL UNIQUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -87,7 +86,7 @@ class MusicDB:
             conn.commit()
             return next_id
             
-    def insert_or_get_song(self, song_name, artist_name, album_name=None, genre=None, song_length=None):
+    def insert_or_get_song(self, song_name, artist_name, album_name=None, genre=None):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
@@ -107,9 +106,9 @@ class MusicDB:
 
             # Insert song and commit
             cursor.execute("""
-                INSERT INTO songs (song_id, song_name, artist_name, album_name, genre, song_length)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (next_id, song_name, artist_name, album_name, genre, song_length))
+                INSERT INTO songs (song_id, song_name, artist_name, album_name, genre)
+                VALUES (?, ?, ?, ?, ?)
+            """, (next_id, song_name, artist_name, album_name, genre))
             conn.commit()
             return next_id
 

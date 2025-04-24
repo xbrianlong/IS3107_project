@@ -3,6 +3,7 @@ from airflow.operators.python import PythonOperator
 from tensorboardX import SummaryWriter
 from datetime import datetime, timedelta
 import pandas as pd
+import pickle
 import os
 import sys
 import torch
@@ -11,29 +12,72 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 from src.data.data_extraction import (
+    get_global_top_songs,
+    filter_out_global_songs,
     get_top_tracks,
+    load_tracks_to_db,
     convert_to_lightgcn_format,
     split_lightgcn_train_test
 )
 
+def get_global_top_songs_task(**kwargs):
+    global_top_songs_file_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'temp', 'global_top_songs.pkl')
+    top_tracks_file = get_global_top_songs()
+    with open(global_top_songs_file_path, 'wb') as f:
+        pickle.dump(top_tracks_file, f)
+    kwargs['ti'].xcom_push(key='global_top_songs_filepath', value=global_top_songs_file_path)
+
 def get_top_tracks_task(**kwargs):
+    # from src.database.db_utils import MusicDB
+    # db = MusicDB()
+    # output_file = get_top_tracks(db_instance=db)
+    # kwargs['ti'].xcom_push(key='top_tracks_filepath', value=output_file)
+    users_top_tracks_file_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'temp', 'users_top_tracks.csv')
+    users_top_tracks = get_top_tracks()
+    users_top_tracks.to_csv(users_top_tracks_file_path, index=False, header=True)
+    kwargs['ti'].xcom_push(key='users_top_tracks_filepath', value=users_top_tracks_file_path)
+
+def filter_top_tracks_task(**kwargs):
+    global_top_songs_file_path = kwargs['ti'].xcom_pull(task_ids='get_global_top_songs', key='global_top_songs_filepath')
+    users_top_tracks_file_path = kwargs['ti'].xcom_pull(task_ids='get_top_tracks', key='users_top_tracks_filepath')
+
+    filtered_df = filter_out_global_songs(user_data_df_filepath=users_top_tracks_file_path, global_top_filepath=global_top_songs_file_path)
+    if not filtered_df.empty:
+        output_file = os.path.join(project_root, 'src', 'lightgcn', 'data', 'temp', 'users_top_tracks_filtered.csv')
+        filtered_df.to_csv(output_file, index=False, header=True)
+        kwargs['ti'].xcom_push(key='filtered_top_tracks_filepath', value=output_file)
+    else:
+        print("No valid tracks found after filtering.")
+
+def load_to_db_task(**kwargs):
     from src.database.db_utils import MusicDB
-    db = MusicDB()
-    output_file = get_top_tracks(db_instance=db)
-    kwargs['ti'].xcom_push(key='top_tracks_filepath', value=output_file)
+    filtered_top_tracks_file_path = kwargs['ti'].xcom_pull(task_ids='filter_top_tracks', key='filtered_top_tracks_filepath')
+    if filtered_top_tracks_file_path:
+        filtered_tracks = pd.read_csv(filtered_top_tracks_file_path)
+    
+        db = MusicDB()
+        load_tracks_to_db(tracks_df=filtered_tracks, db_instance=db)
+    else:
+        print("No filtered top tracks file found. No data loaded into DB.")
 
 def convert_task(**kwargs):
     from src.database.db_utils import MusicDB
-    output_path = os.path.join(project_root, 'lightgcn/data/music')
+    output_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music')
+    print(f"Writing files to: {output_path}")
     db = MusicDB()
+    
+    # Get database stats before conversion
+    stats = db.get_db_stats()
+    print(f"Database stats before conversion: {stats}")
+    
     convert_to_lightgcn_format(
         db_instance=db,
         output_dir=output_path
     )
 
 def split_task(**kwargs):
-    input_path = os.path.join(project_root, 'lightgcn/data/music/user_track_interactions.txt')
-    output_dir = os.path.join(project_root, 'lightgcn/data/music')
+    input_path = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music', 'user_track_interactions.txt')
+    output_dir = os.path.join(project_root, 'src', 'lightgcn', 'data', 'music')
     split_lightgcn_train_test(input_path=input_path, output_dir=output_dir)
 
 def train_lgcn(**kwargs):
@@ -174,9 +218,28 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    fetch_top_tracks = PythonOperator(
-        task_id='fetch_top_tracks',
+    global_top_songs = PythonOperator(
+        task_id='get_global_top_songs',
+        python_callable=get_global_top_songs_task,
+        provide_context=True,
+    )
+
+    user_top_tracks = PythonOperator(
+        task_id='get_top_tracks',
         python_callable=get_top_tracks_task,
+        provide_context=True,
+    )
+
+    filter_top_tracks = PythonOperator(
+        task_id='filter_top_tracks',
+        python_callable=filter_top_tracks_task,
+        provide_context=True,
+    )
+
+    load_to_db = PythonOperator(
+        task_id='load_to_db',
+        python_callable=load_to_db_task,
+        provide_context=True,
     )
 
     convert_to_lightgcn = PythonOperator(
@@ -188,6 +251,7 @@ with DAG(
     split_train_test = PythonOperator(
         task_id='split_train_test',
         python_callable=split_task,
+        provide_context=True,
     )
 
     train_task = PythonOperator(
@@ -202,4 +266,4 @@ with DAG(
         provide_context=True,
     )
 
-    fetch_top_tracks >> convert_to_lightgcn >> split_train_test >> train_task >> predict_lightgcn
+    [global_top_songs, user_top_tracks] >> filter_top_tracks >> load_to_db >> convert_to_lightgcn >> split_train_test >> train_task >> predict_lightgcn
