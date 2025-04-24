@@ -169,7 +169,7 @@ class MusicDB:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT s.song_name, s.artist_name, s.album_name, l.listen_week, l.playcount
+                SELECT s.song_name, s.artist_name, s.album_name, l.listen_week, l.playcount, s.genre
                 FROM listening_data l
                 JOIN users u ON l.user_id = u.user_id
                 JOIN songs s ON l.song_id = s.song_id

@@ -11,70 +11,90 @@ import requests
 import math
 import os
 import ast
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+from database.db_utils import MusicDB
 from dotenv import load_dotenv
 
 load_dotenv()
-
 
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY") 
 API_ROOT = "http://ws.audioscrobbler.com/2.0/"
 
 st.set_page_config(layout="wide")
 
-def load_recommendations():
-    # Read the file with correct encoding
-    with open("top3_recommendations.txt", "r", encoding="utf-8") as f:
-        lines = f.readlines()
+# def load_recommendations():
+#     # Read the file with correct encoding
+#     with open("top3_recommendations.txt", "r", encoding="utf-8") as f:
+#         lines = f.readlines()
 
-    data = []
+#     data = []
 
-    for line in lines:
-        if ':' not in line:
-            continue  # skip malformed lines
-        username, recs_str = line.strip().split(":", 1)
-        try:
-            recs = ast.literal_eval(recs_str.strip())
-            # Take only the first 3 recommendations
-            row = [username] + recs[:3]
-            data.append(row)
-        except:
-            continue  # skip lines that fail to parse
+#     for line in lines:
+#         if ':' not in line:
+#             continue  # skip malformed lines
+#         username, recs_str = line.strip().split(":", 1)
+#         try:
+#             recs = ast.literal_eval(recs_str.strip())
+#             # Take only the first 3 recommendations
+#             row = [username] + recs[:3]
+#             data.append(row)
+#         except:
+#             continue  # skip lines that fail to parse
 
-    df = pd.DataFrame(data, columns=["username", "rec_1", "rec_2", "rec_3"])
+#     df = pd.DataFrame(data, columns=["username", "rec_1", "rec_2", "rec_3"])
+#     return df
+
+
+# recommendations = load_recommendations()
+
+
+def generate_listening_data_from_db(usernames, refresh=False):
+    music_db = MusicDB(db_path="../outputs/music.db")  # update to your relative path
+    all_records = []
+
+    for username in usernames:
+        user_history = music_db.get_user_listening_history(username, limit= 100)  # large limit to get everything
+        for record in user_history:
+            all_records.append({
+                "username": username,
+                "song_name": record[0],
+                "artist_name": record[1],
+                "album_name": record[2],
+                "listen_week": record[3],
+                "playcount": record[4],
+                "Genre": record[5],
+                
+            })
+
+    df = pd.DataFrame(all_records)
     return df
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+# Example usage
+base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-recommendations = load_recommendations()
+# Construct the relative path to the CSV file
+csv_path = os.path.join(base_path, "src", "data", "raw_data", "lastfm_active_users.csv")
 
-# Function to get artist image
-def get_artist_image(artist_name):
-    try:
-        params = {
-            'method': 'artist.getinfo',
-            'artist': artist_name,
-            'api_key': LASTFM_API_KEY,
-            'format': 'json'
-        }
-        response = requests.get(API_ROOT, params=params)
-        data = response.json()
-        
-        # Get medium-sized image
-        if 'artist' in data and 'image' in data['artist']:
-            for img in data['artist']['image']:
-                if img['size'] == 'large':
-                    if img['#text']:
-                        return img['#text']
-        
-        return "https://via.placeholder.com/150"
-    except Exception as e:
-        print(f"Error fetching image for {artist_name}: {e}")
-        return "https://via.placeholder.com/150"
+active_users_df = pd.read_csv(csv_path)
+usernames = active_users_df["username"].dropna().unique().tolist()[:300]
+
+df = generate_listening_data_from_db(usernames, refresh=True)
+
+
+df = df.rename(columns={
+    "username": "User",
+    "song_name": "Song",
+    "artist_name": "Artist",
+    "listen_week": "Listen_Date"
+})
     
-df = pd.read_json("lastfm_data.json")
-df['Listen_Date'] = pd.to_datetime(df['Listen_Date'], format='mixed', dayfirst=True, errors='coerce').dt.date
+# df = pd.read_json("lastfm_data.json")
+# df['Listen_Date'] = pd.to_datetime(df['Listen_Date'], format='mixed', dayfirst=True, errors='coerce').dt.date
 # st.write(df.head())
-
-
+# st.write(df.album_name.value_counts())
 
 def get_top_artists_with_images(limit=10, genre_filter=None):
     if genre_filter and genre_filter != "All":
@@ -87,175 +107,67 @@ def get_top_artists_with_images(limit=10, genre_filter=None):
     top_artists_sorted = top_artists.sort_values(by="Count", ascending=False)
     
 
-    top_artists_sorted["ImageURL"] = top_artists_sorted["Artist"].apply(get_artist_image)
+    
     
     return top_artists_sorted
 
-def get_songs_by_artist(artist_name, genre_filter=None):
-    if genre_filter and genre_filter != "All":
-        filtered_df = df[df["Genre"] == genre_filter]
-    else:
-        filtered_df = df
-        
-    artist_songs = filtered_df[filtered_df["Artist"] == artist_name]
-    song_counts = artist_songs["Song"].value_counts().reset_index()
-    song_counts.columns = ["Song", "Count"]
-    song_counts_sorted = song_counts.sort_values(by="Count", ascending=False)
-    return song_counts_sorted
-
-# Create session state to track clicked artist
-if 'selected_artist' not in st.session_state:
-    st.session_state.selected_artist = None
-if 'show_artist_details' not in st.session_state:
-    st.session_state.show_artist_details = False
-if 'current_tab' not in st.session_state:
-    st.session_state.current_tab = "overall"
-if 'genre_filter' not in st.session_state:
-    st.session_state.genre_filter = "All"
-
 # Create tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Overall Dashboard", "👤 User Dashboard", "📈 Trend Analysis", "🎵 Artist Intelligence"])
+tab1, tab2= st.tabs(["📊 Overall Dashboard", "👤 User Dashboard"])
 
 with tab1:
     st.session_state.current_tab = "overall"
     st.title("📊 Overall Dashboard")
-    
-    # Create tabs within the overall dashboard for better organization
-    overall_tabs = st.tabs(["Top Artists", "Song Analytics"])
-    
-    # TAB 1: TOP ARTISTS
-    with overall_tabs[0]:
-        st.header("🎸 Top Artists Leaderboard")
-        
-        # Get top artists data
-        top_artists = get_top_artists_with_images(10)
-        
-        # Display artist grid in a more compact way
-        st.write("Click on an artist to see their details")
-        
-        # Use 5 columns for desktop, fewer on mobile (responsive)
-        cols = st.columns(5)
-        for i, (index, artist) in enumerate(top_artists.iterrows()):
-            col_index = i % 5
-            with cols[col_index]:
-                # Make images smaller for less clutter
-                st.image(artist["ImageURL"], width=120)
-                
-                # Simplified button label
-                if st.button(f"**{artist['Artist']}**\n{artist['Count']}", key=f"artist_btn_{i}_tab1"):
-                    st.session_state.selected_artist = artist['Artist']
-                    st.session_state.show_artist_details = True
-                    st.session_state.genre_filter = "All"
-                    st.rerun()
-        
-        # Show artist details in a dedicated container for visual separation
-        if st.session_state.show_artist_details and st.session_state.current_tab == "overall":
-            with st.container():
-                st.markdown("---")
-                artist_name = st.session_state.selected_artist
-                
-                # Create columns for artist image and info
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    artist_image = get_artist_image(artist_name)
-                    st.image(artist_image, width=180)
-                    
-                    # Add a button to close artist details
-                    if st.button("Close Artist Details"):
-                        st.session_state.show_artist_details = False
-                        st.session_state.selected_artist = None
-                        st.rerun()
-                        
-                with col2:
-                    st.header(f"{artist_name}")
-                    
-                    # Get songs by this artist
-                    artist_songs = get_songs_by_artist(artist_name)
-                    
-                    # Display song counts as a bar chart
-                    if not artist_songs.empty:
-                        # Limit to top 8 songs for better visualization
-                        display_songs = artist_songs.head(8)
-                        
-                        fig = go.Figure(data=[
-                            go.Bar(
-                                x=display_songs["Song"],
-                                y=display_songs["Count"],
-                                text=display_songs["Count"],
-                                textposition='auto',
-                                marker_color='rgb(158,202,225)'
-                            )
-                        ])
-                        fig.update_layout(
-                            xaxis_tickangle=-45,
-                            xaxis_title="Song",
-                            yaxis_title="Play Count",
-                            height=350,
-                            margin=dict(l=40, r=40, t=30, b=80)
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Show full data in an expander to reduce clutter
-                        with st.expander("View All Songs Data"):
-                            st.dataframe(artist_songs)
-                    else:
-                        st.write("No song data available for this artist.")
-    
-    # TAB 2: SONG ANALYTICS
-    with overall_tabs[1]:
-        # Create two columns for side-by-side charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Top 10 Most Popular Songs")
-            top_songs = df["Song"].value_counts().head(10).reset_index()
-            top_songs.columns = ["Song", "Count"]
-            top_songs_sorted = top_songs.sort_values(by="Count", ascending=False)
-            
-            # Use plotly instead of st.bar_chart for better customization
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=top_songs_sorted["Song"],
-                    y=top_songs_sorted["Count"],
-                    text=top_songs_sorted["Count"],
-                    textposition='auto',
-                    marker_color='rgb(107,174,214)'
-                )
-            ])
-            fig.update_layout(
-                xaxis_tickangle=-45,
-                height=400,
-                margin=dict(l=40, r=40, t=10, b=80)
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    top_artists = get_top_artists_with_images(10)  # Make sure this function also uses 'playcount'
 
-        with col2:
-            st.subheader("Genre Distribution")
-            genre_counts = df["Genre"].value_counts().head(10).reset_index()
-            genre_counts.columns = ["Genre", "Count"]
-            genre_counts_sorted = genre_counts.sort_values(by="Count", ascending=False)
-            
-            # Use plotly pie chart for genre distribution
-            fig = go.Figure(data=[
-                go.Pie(
-                    labels=genre_counts_sorted["Genre"],
-                    values=genre_counts_sorted["Count"],
-                    hole=.3
-                )
-            ])
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Artist stats in a cleaner format
+    # Create two columns for side-by-side charts
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Top 10 Most Popular Songs")
+        top_songs = (
+            df.groupby(["Song", "Artist"])["playcount"]
+            .sum()
+            .reset_index()
+            .sort_values(by="playcount", ascending=False)
+            .head(10)
+        )
+
+        # Create combined labels
+        top_songs["Song_Artist"] = top_songs["Song"] + " (" + top_songs["Artist"] + ")"
+
+# Truncate long labels for the x-axis
+        top_songs["Song_Artist_Short"] = top_songs["Song_Artist"].str.slice(0, 25) + "..."
+
+        fig = go.Figure(data=[
+            go.Bar(
+                x=top_songs["Song_Artist_Short"],
+                y=top_songs["playcount"],
+                text=top_songs["playcount"],
+                hovertext=top_songs["Song_Artist"],  # Full info on hover
+                hoverinfo="text+y",
+                textposition='auto',
+                marker_color='rgb(107,174,214)'
+            )
+        ])
+        fig.update_layout(
+            xaxis_title="Song (Artist)",
+            yaxis_title="Play Count",
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    
+
+    with col2:
         st.subheader("Top Artists")
-        
-        # Create a more visually appealing bar chart
+        top_artists = df.groupby("Artist", as_index=False)["playcount"].sum()
+        top_artists = top_artists.sort_values(by="playcount", ascending=False)
+
         artist_fig = go.Figure(data=[
             go.Bar(
                 x=top_artists["Artist"].head(10),
-                y=top_artists["Count"].head(10),
-                text=top_artists["Count"].head(10),
+                y=top_artists["playcount"].head(10),
+                text=top_artists["playcount"].head(10),
                 textposition='auto',
                 marker=dict(
                     color='rgb(158,202,225)',
@@ -264,14 +176,13 @@ with tab1:
             )
         ])
         artist_fig.update_layout(
-            xaxis_tickangle=-45,
             xaxis_title="Artist",
             yaxis_title="Play Count",
-            height=400,
-            margin=dict(l=40, r=40, t=40, b=80)
         )
         st.plotly_chart(artist_fig, use_container_width=True)
-    
+
+
+
 
 with tab2:
     st.session_state.current_tab = "user"
@@ -280,7 +191,7 @@ with tab2:
     st.title("👤 User Personal Dashboard")
     st.markdown("Explore your music preferences and discover new songs based on your listening habits.")
     
-    selected_user = st.selectbox("Select a User", df.User.unique().tolist())
+    selected_user = st.selectbox("Select a User", sorted(df.User.unique().tolist()))
     user_df = df[df["User"] == selected_user]
     
     # Check if user has data
@@ -288,135 +199,150 @@ with tab2:
         st.warning(f"No listening data found for {selected_user}.")
         st.stop()
     
-    # Stats summary section
-    st.markdown("## Quick Stats")
-    col_stats1, col_stats2, col_stats3 = st.columns(3)
-    with col_stats1:
-        st.metric("Total Listens", f"{len(user_df):,}")
-    with col_stats2:
-        unique_songs = user_df["Song"].nunique()
-        st.metric("Unique Songs", f"{unique_songs:,}")
-    with col_stats3:
-        unique_artists = user_df["Artist"].nunique()
-        st.metric("Unique Artists", f"{unique_artists:,}")
-    
     # ==========================================
     # SECTION 1: Music Taste Analysis
     # ==========================================
     st.markdown("---")
     st.header("🎭 Your Music Taste Profile")
-    
+    # st.write(df)
     # Create tabs for different music insights
-    taste_tab1, taste_tab2 = st.tabs(["Genre & Artists", "Listening Patterns"])
     
-    with taste_tab1:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Genre distribution
-            genre_counts = user_df["Genre"].value_counts().reset_index()
-            genre_counts.columns = ["Genre", "Count"]
-            total_listens = genre_counts["Count"].sum()
-            genre_counts["Percentage"] = (genre_counts["Count"] / total_listens * 100).round(1)
-            
-            fig = go.Figure(data=[
-                go.Pie(
-                    labels=genre_counts["Genre"],
-                    values=genre_counts["Count"],
-                    textinfo='label+percent',
-                    insidetextorientation='radial',
-                    hole=.3,  # Creates a donut chart for more modern look
-                    marker=dict(colors=px.colors.qualitative.Pastel)
-                )
-            ])
-            
-            fig.update_layout(
-                title="Your Genre Distribution",
-                height=400,
-                margin=dict(t=30, b=0, l=0, r=0)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+    
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Your Top Songs")
 
-        with col2:
-            # Add user's top artists
-            st.subheader("Your Top Artists")
-            user_top_artists = user_df["Artist"].value_counts().head(5)
-            
-            fig = px.bar(
-                x=user_top_artists.values,
-                y=user_top_artists.index,
-                orientation='h',
-                labels={"x": "Number of Listens", "y": "Artist"},
-                color=user_top_artists.values,
-                color_continuous_scale=px.colors.sequential.Viridis
-            )
-            
-            fig.update_layout(
-                height=400,
-                margin=dict(t=10, b=0, l=0, r=0),
-                yaxis=dict(autorange="reversed")  # Put highest values at top
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+        # Aggregate top songs by playcount and include artist info
+        user_top_songs = (
+            user_df.groupby(["Song", "Artist"])["playcount"]
+            .sum()
+            .reset_index()
+            .sort_values("playcount", ascending=False)
+            .head(10)
+        )
+        
+        # Create a label that combines song and artist
+        user_top_songs["Song_Artist"] = user_top_songs["Song"] + " (" + user_top_songs["Artist"] + ")"
+
+        fig = px.bar(
+            x=user_top_songs["playcount"],
+            y=user_top_songs["Song_Artist"],
+            orientation='h',
+            labels={"playcount": "Play Count", "Song_Artist": "Song"},
+            color=user_top_songs["playcount"],
+            color_continuous_scale=px.colors.sequential.Viridis
+        )
+
+        fig.update_layout(
+            height=400,
+            margin=dict(t=10, b=0, l=0, r=0),
+            xaxis_title="Number of Listens",  
+            yaxis_title="Song (Artist)",
+            yaxis=dict(autorange="reversed")   
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+                
+
+    with col2:
+        # Add user's top artists
+        st.subheader("Your Top Artists")
+
+        # Sum playcount per artist for this user
+        user_top_artists = user_df.groupby("Artist", as_index=False)["playcount"].sum()
+        user_top_artists = user_top_artists.sort_values(by="playcount", ascending=False).head(10)
+
+        fig = px.bar(
+            user_top_artists,
+            x="playcount",
+            y="Artist",
+            orientation='h',
+            labels={"playcount": "Total Play Count", "Artist": "Artist"},
+            color="playcount",
+            color_continuous_scale=px.colors.sequential.Viridis
+        )
+
+        fig.update_layout(
+            height=400,
+            margin=dict(t=10, b=0, l=0, r=0),
+            yaxis=dict(autorange="reversed")  # Put highest values at top
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
     
-    with taste_tab2:
-        # Add listening trends by time if available
-        st.markdown("#### Your Listening Activity")
-        if "Listen_Date" in user_df.columns:
-            user_df["Listen_Date"] = pd.to_datetime(user_df["Listen_Date"])
-            
-            # Group by date and count
-            listen_by_day = user_df.resample('D', on='Listen_Date').size()
-            
-            fig = px.line(
-                x=listen_by_day.index, 
-                y=listen_by_day.values,
-                labels={"x": "Date", "y": "Number of Listens"},
-                title="Your Listening Activity Over Time"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Listening date information is not available.")
     
     # ==========================================
     # SECTION 2: Personalized Recommendations
     # ==========================================
-    st.markdown("---")
+    # st.markdown("---")
     st.header("🎵 Personalized Music Recommendations")
+
+    music_db = MusicDB(db_path="../outputs/music.db")
     
-    rec_tab1, rec_tab2 = st.tabs(["Your Top Picks", "Community Recommendations"])
+    rec_tab1, rec_tab2 = st.tabs(["AI Top Picks", "Community Recommendations"])
     
     with rec_tab1:
-        # Show personalized recommendations
-        if selected_user in list(recommendations['username']):
-            # Get the row corresponding to the selected user
-            user_row = recommendations[recommendations['username'] == selected_user].iloc[0]
+        # Show personalized recommendations using the music_db.get_user_recommendations function
+        user_recommendations = music_db.get_user_recommendations(selected_user, limit=10)
+        
+        if user_recommendations:
+            # Display recommendations in a more visually appealing way
+            st.subheader("🤖 AI-Generated Song Recommendations")
             
-            # Extract top 3 recommended songs
-            rec_list = [user_row['rec_1'], user_row['rec_2'], user_row['rec_3']]
-
-            # Use columns for cleaner layout
-            cols = st.columns(3)
-            for i, song in enumerate(rec_list):
+            # Use columns for cleaner layout - display up to 5 recommendations
+            cols = st.columns(min(5, len(user_recommendations)))
+            for i, rec in enumerate(user_recommendations[:5]):
+                song_name, artist_name, album_name, rank, score, generated_at = rec
+                
                 with cols[i]:
-                    song_title = song.split(' - ')[0].strip()
-                    artist = song.split(' - ')[1].split('(score')[0].strip()
-                    score = song.split('score: ')[1].replace(')', '')
+                    st.markdown(f"### #{rank}")
+                    st.markdown(f"🎶 **{song_name}**")
+                    st.markdown(f"👤 *{artist_name}*")
+                    if album_name:
+                        st.markdown(f"💿 *Album:* {album_name}")
                     
-                    st.markdown(f"### #{i+1}")
-                    st.markdown(f"🎶 **{song_title}**")
-                    st.markdown(f"👤 *{artist}*")
-                    st.markdown(f"⭐ Match Score: `{score}`")
+            
+            # If there are more than 5 recommendations, display them in a table
+            if len(user_recommendations) > 5:
+                with st.expander("🔍 View more recommendations"):
+                    rec_data = []
+                    for rec in user_recommendations[5:]:
+                        song_name, artist_name, album_name, rank, score, generated_at = rec
+                        rec_data.append({
+                            "Rank": rank,
+                            "Song": song_name,
+                            "Artist": artist_name,
+                            "Album": album_name if album_name else "-",
+                            "Score": f"{score:.2f}",
+                            "Generated": pd.to_datetime(generated_at).strftime("%Y-%m-%d") if generated_at else "-"
+                        })
                     
-                    # Add a "Listen" button that could link to music platforms
-                    st.button(f"Listen to {song_title}", key=f"listen_{i}")
+                    rec_df = pd.DataFrame(rec_data)
+                    
+                    st.dataframe(
+                        rec_df,
+                        column_config={
+                            "Rank": st.column_config.NumberColumn(format="%d"),
+                            "Score": st.column_config.ProgressColumn(
+                                "Match Score",
+                                help="How well this song matches your taste profile",
+                                format="%.2f",
+                                min_value=0,
+                                max_value=1,
+                            ),
+                            "Generated": st.column_config.DateColumn("Date Generated")
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
         else:
             st.warning(f"No personalized recommendations found for {selected_user}.")
-    
+
+        
     with rec_tab2:
-        st.subheader("Song Recommendations From Similar Users")
+        st.subheader("🔍 Explore Tracks Popular in your Community")
         
         # Calculate and display top artists for the selected user
         user_artist_counts = df.groupby(['User', 'Artist']).size().reset_index(name='Count')
@@ -495,7 +421,7 @@ with tab2:
     st.markdown("---")
     st.header("🌐 Your Music Community")
     
-    community_tab1, community_tab2 = st.tabs(["Similar Users", "Visualization Networks"])
+    community_tab1, community_tab2 = st.tabs(["Similar Users", "Network Graphs"])
     
     with community_tab1:
         if similarity_scores:
@@ -531,7 +457,6 @@ with tab2:
             st.info("No users with similar tastes found.")
     
     with community_tab2:
-        st.subheader("Interactive Network Visualizations")
         
         network_choice = st.radio(
             "Choose a network visualization:",
@@ -569,21 +494,22 @@ with tab2:
                 
                 # Position the selected user prominently
                 pos_3d = {}
-                pos_3d[selected_user] = (0, 0, 0)
-                
-                # Position the artists in a circle around the selected user
+                # Top layer: selected user
+                pos_3d[selected_user] = (0, 0, 3.0)
+
+                # Middle layer: artists in a circle
                 r = 1.5  # Radius of the circle
                 num_artists = len(selected_user_top_artists)
                 for i, artist in enumerate(selected_user_top_artists):
-                    theta = (2 * 3.14159 * i) / num_artists
-                    pos_3d[artist] = (r * math.cos(theta), r * math.sin(theta), 0.5)
-                
-                # Position other users in a wider circle
+                    theta = (2 * math.pi * i) / num_artists
+                    pos_3d[artist] = (r * math.cos(theta), r * math.sin(theta), 0.0)
+
+                # Bottom layer: connected users in a wider circle
                 r_users = 3.0
                 for i, user in enumerate(connected_users):
-                    theta = (2 * 3.14159 * i) / (len(connected_users) or 1)  # Avoid division by zero
-                    pos_3d[user] = (r_users * math.cos(theta), r_users * math.sin(theta), -0.5)
-                
+                    theta = (2 * math.pi * i) / (len(connected_users) or 1)  # Avoid division by zero
+                    pos_3d[user] = (r_users * math.cos(theta), r_users * math.sin(theta), -3.0)
+
                 # Create edges for the 3D plot
                 edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
                 for edge in G.edges():
@@ -592,7 +518,7 @@ with tab2:
                     edge_x_3d.extend([x0, x1, None])
                     edge_y_3d.extend([y0, y1, None])
                     edge_z_3d.extend([z0, z1, None])
-                
+
                 edge_trace_3d = go.Scatter3d(
                     x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
                     line=dict(width=1, color='#888'),
@@ -682,469 +608,259 @@ with tab2:
                 st.info("Not enough data to create a User-Artist network.")
                 
         else:  # Recommendation Network
-            # Display the Recommendation Network visualization
-            long_recs = recommendations.melt(id_vars="username", value_vars=["rec_1", "rec_2", "rec_3"], 
-                                        var_name="Rank", value_name="Full_Rec")
-
-            # Extract Song and Artist
-            long_recs["Song"] = long_recs["Full_Rec"].apply(lambda x: x.split(" - ")[0].strip())
-            long_recs["Artist"] = long_recs["Full_Rec"].apply(lambda x: x.split(" - ")[1].split("(score")[0].strip())
-            long_recs["Song_Artist"] = long_recs["Song"] + " - " + long_recs["Artist"]
-            long_recs.rename(columns={"username": "User"}, inplace=True)
-
-            # Count number of users per song
-            song_user_count = long_recs.groupby("Song_Artist")["User"].nunique()
-
-            # Keep only songs recommended to at least 2 users
-            valid_songs = song_user_count[song_user_count >= 2].index
-            filtered_df = long_recs[long_recs["Song_Artist"].isin(valid_songs)]
-
-            # Filter only songs connected to the selected user
-            user_songs = filtered_df[filtered_df["User"] == selected_user]["Song_Artist"].unique()
-            sub_df = filtered_df[filtered_df["Song_Artist"].isin(user_songs)]
-
-            if len(sub_df) > 1:
-                # Your original code for the recommendation network visualization
-                G = nx.Graph()
-
-                for _, row in sub_df.iterrows():
-                    G.add_node(row["User"], type="user")
-                    G.add_node(row["Song_Artist"], type="song")
-                    G.add_edge(row["User"], row["Song_Artist"])
-
-                # Random 3D positions
-                pos_3d = {node: (random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)) for node in G.nodes()}
-
-                edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
-                for edge in G.edges():
-                    x0, y0, z0 = pos_3d[edge[0]]
-                    x1, y1, z1 = pos_3d[edge[1]]
-                    edge_x_3d.extend([x0, x1, None])
-                    edge_y_3d.extend([y0, y1, None])
-                    edge_z_3d.extend([z0, z1, None])
-
-                edge_trace_3d = go.Scatter3d(
-                    x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
-                    line=dict(width=1, color='#888'),
-                    hoverinfo='none',
-                    mode='lines'
-                )
-
-                # Create separate traces for different node types
-                # Selected user node
-                selected_user_x = [pos_3d[selected_user][0]]
-                selected_user_y = [pos_3d[selected_user][1]]
-                selected_user_z = [pos_3d[selected_user][2]]
-                selected_user_text = [f"👤 {selected_user} (YOU)"]
+            
+            
+            # Get recommendations for the selected user
+            selected_user_recs = music_db.get_user_recommendations(selected_user, limit=5)
+            
+            if not selected_user_recs:
+                st.info(f"No recommendations found for {selected_user}.")
+            else:
+                # Create a list of songs recommended to the selected user
+                selected_user_songs = [(rec[0], rec[1]) for rec in selected_user_recs]  # (song_name, artist_name)
+                selected_user_song_ids = [f"{song} - {artist}" for song, artist in selected_user_songs]
                 
-                selected_user_trace = go.Scatter3d(
-                    x=selected_user_x, y=selected_user_y, z=selected_user_z,
-                    mode='markers+text',
-                    marker=dict(size=15, color='green', line=dict(width=2, color='white')),
-                    text=selected_user_text,
-                    textposition="top center",
-                    hoverinfo='text',
-                    name='Selected User'
-                )
+                # Find other users with the same recommendations
+                shared_recommendations = []
+                all_users = df.User.unique().tolist()
+                all_users.remove(selected_user)  # Remove the selected user
                 
-                # Other user nodes
-                other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
-                if other_users:
-                    other_user_x = [pos_3d[node][0] for node in other_users]
-                    other_user_y = [pos_3d[node][1] for node in other_users]
-                    other_user_z = [pos_3d[node][2] for node in other_users]
-                    other_user_text = [f"👤 {node}" for node in other_users]
+
+                # For each sample user, check if they share recommendations with the selected user
+                for other_user in all_users:
+                    other_user_recs = music_db.get_user_recommendations(other_user, limit=5)
+                    if other_user_recs:
+                        other_user_song_ids = [f"{rec[0]} - {rec[1]}" for rec in other_user_recs]
+                        
+                        # Find shared songs
+                        shared_songs = set(selected_user_song_ids) & set(other_user_song_ids)
+                        
+                        if shared_songs:
+                            for song_id in shared_songs:
+                                shared_recommendations.append({
+                                    "User": other_user,
+                                    "Song_Artist": song_id
+                                })
+                
+                # Add the selected user's recommendations to the shared recommendations
+                for song_id in selected_user_song_ids:
+                    shared_recommendations.append({
+                        "User": selected_user,
+                        "Song_Artist": song_id
+                    })
+                
+                # Convert to DataFrame
+                shared_rec_df = pd.DataFrame(shared_recommendations)
+                
+                if len(shared_rec_df) > 1:
+                    # Build the network graph
+                    G = nx.Graph()
                     
-                    other_user_trace = go.Scatter3d(
-                        x=other_user_x, y=other_user_y, z=other_user_z,
+                    # Add nodes and edges
+                    for _, row in shared_rec_df.iterrows():
+                        G.add_node(row["User"], type="user")
+                        G.add_node(row["Song_Artist"], type="song")
+                        G.add_edge(row["User"], row["Song_Artist"])
+                    
+                    # Generate 3D layout for nodes
+                    # Place selected user at center
+                    pos_3d = {}
+
+                    # Selected user at origin (bottom layer)
+                    pos_3d[selected_user] = (0, 0, 0)
+
+                    # Position songs in a horizontal ring above the selected user (middle layer)
+                    song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
+                    num_songs = len(song_nodes)
+                    radius_song = 3.0  # Slightly wider radius for visibility
+                    z_song = 6.0       # Increased height
+                    angle_gap_song = 2 * math.pi / (num_songs or 1)
+
+                    for i, song in enumerate(song_nodes):
+                        angle = i * angle_gap_song
+                        pos_3d[song] = (
+                            radius_song * math.cos(angle),
+                            radius_song * math.sin(angle),
+                            z_song
+                        )
+
+                    # Position other users in a horizontal ring above the songs (top layer)
+                    other_users = [node for node in G.nodes() if G.nodes[node]['type'] == 'user' and node != selected_user]
+                    num_users = len(other_users)
+                    radius_user = 5.0   # Slightly wider
+                    z_user = 12.0       # More height difference
+                    angle_gap_user = 2 * math.pi / (num_users or 1)
+
+                    for i, user in enumerate(other_users):
+                        angle = i * angle_gap_user
+                        pos_3d[user] = (
+                            radius_user * math.cos(angle),
+                            radius_user * math.sin(angle),
+                            z_user
+                        )
+
+                    # Create edges for the 3D plot
+                    edge_x_3d, edge_y_3d, edge_z_3d = [], [], []
+                    for edge in G.edges():
+                        x0, y0, z0 = pos_3d[edge[0]]
+                        x1, y1, z1 = pos_3d[edge[1]]
+                        edge_x_3d.extend([x0, x1, None])
+                        edge_y_3d.extend([y0, y1, None])
+                        edge_z_3d.extend([z0, z1, None])
+                    
+                    edge_trace_3d = go.Scatter3d(
+                        x=edge_x_3d, y=edge_y_3d, z=edge_z_3d,
+                        line=dict(width=1, color='#888'),
+                        hoverinfo='none',
+                        mode='lines'
+                    )
+                    
+                    # Create selected user node trace
+                    selected_user_x = [pos_3d[selected_user][0]]
+                    selected_user_y = [pos_3d[selected_user][1]]
+                    selected_user_z = [pos_3d[selected_user][2]]
+                    selected_user_text = [f"👤 {selected_user} (YOU)"]
+                    
+                    selected_user_trace = go.Scatter3d(
+                        x=selected_user_x, y=selected_user_y, z=selected_user_z,
                         mode='markers+text',
-                        marker=dict(size=12, color='royalblue', line=dict(width=1)),
-                        text=other_user_text,
+                        marker=dict(size=15, color='green', line=dict(width=2, color='white')),
+                        text=selected_user_text,
                         textposition="top center",
                         hoverinfo='text',
-                        name='Other Users'
+                        name='Selected User'
                     )
-                else:
-                    other_user_trace = None
-                
-                # Song nodes
-                song_nodes = [node for node in G.nodes() if G.nodes[node]['type'] == 'song']
-                song_x = [pos_3d[node][0] for node in song_nodes]
-                song_y = [pos_3d[node][1] for node in song_nodes]
-                song_z = [pos_3d[node][2] for node in song_nodes]
-                # Trim song names if they're too long
-                song_text = [f"🎵 {node[:20]}..." if len(node) > 20 else f"🎵 {node}" for node in song_nodes]
-                
-                song_trace = go.Scatter3d(
-                    x=song_x, y=song_y, z=song_z,
-                    mode='markers+text',
-                    marker=dict(size=10, color='gold', line=dict(width=1)),
-                    text=song_text,
-                    textposition="bottom center",
-                    hoverinfo='text',
-                    name='Songs'
-                )
-
-                # Combine traces for the figure
-                traces = [edge_trace_3d, selected_user_trace, song_trace]
-                if other_user_trace:
-                    traces.append(other_user_trace)
-
-                fig_3d = go.Figure(data=traces,
-                                layout=go.Layout(
-                                    title=f'Users who received the same song recommendations as you',
-                                    showlegend=True,
-                                    hovermode='closest',
-                                    margin=dict(b=20, l=5, r=5, t=40),
-                                    scene=dict(
-                                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-                                    )
-                                ))
-
-                st.plotly_chart(fig_3d, use_container_width=True)
-                
-                with st.expander("How to use this visualization"):
-                    st.markdown("""
-                    - **Green node**: You
-                    - **Gold nodes**: Recommended songs
-                    - **Blue nodes**: Other users who received the same recommendations
-                    - **Lines**: Connections between users and their song recommendations
                     
-                    This visualization shows which of your recommended songs are also recommended to other users!
-                    """)
-            else:
-                st.info("No overlapping recommended songs with other users were found.")
-
-
-
-with tab3:
-    st.session_state.current_tab = "trends"
-    st.title("📈 Trend Analysis")
-    
-    # Convert to datetime and handle errors
-    df["Listen_Date"] = pd.to_datetime(df["Listen_Date"], format='mixed', dayfirst=True, errors='coerce')
-
-    # Drop rows where conversion failed
-    df = df.dropna(subset=["Listen_Date"])
-
-    # Create date-related columns
-    df["Month"] = df["Listen_Date"].dt.month
-    df["Year"] = df["Listen_Date"].dt.year
-    df["YearMonth"] = pd.to_datetime(df["Listen_Date"]).dt.strftime('%b %Y')
-
-    # Create a display date column (date only, no time)
-    df["Display_Date"] = df["Listen_Date"].dt.date
-    
-    # For display in the dataframe head
-    display_df = df.copy()
-    display_df["Listen_Date"] = display_df["Listen_Date"].dt.date
-    # st.write(display_df.head())
-    
-    # Create monthly trend analysis
-    st.header("🔍 Monthly Listening Trends")
-    
-    # Let user choose what to analyze
-    trend_type = st.selectbox("Select trend to analyze:", 
-                             ["Genre Popularity", "Artist Popularity"])
-    
-    # Convert min and max to date objects for the date picker
-    min_date = df["Listen_Date"].dt.date.min()
-    max_date = df["Listen_Date"].dt.date.max()
-    
-    date_range = st.date_input("Select date range:", 
-                              [min_date, max_date],
-                              min_value=min_date,
-                              max_value=max_date)
-    
-    # Filter by date range if specified
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-        # Convert date objects back to datetime for filtering
-        start_datetime = pd.Timestamp(start_date)
-        end_datetime = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-        filtered_df = df[(df["Listen_Date"] >= start_datetime) & (df["Listen_Date"] <= end_datetime)]
-    else:
-        filtered_df = df
-        
-    if trend_type == "Genre Popularity":
-        # Get top genres for the period
-        top_genres = filtered_df["Genre"].value_counts().nlargest(30).index.tolist()
-        selected_genres = st.multiselect("Select genres to compare:", top_genres, default=top_genres[:3])
-        
-        if selected_genres:
-            genre_df = filtered_df[filtered_df["Genre"].isin(selected_genres)]
-            
-            genre_monthly = genre_df.groupby(["YearMonth", "Genre"]).size().reset_index(name="Count")
-            
-            fig = go.Figure()
-            
-            for genre in selected_genres:
-                genre_data = genre_monthly[genre_monthly["Genre"] == genre]
-                if not genre_data.empty:
-                    fig.add_trace(go.Scatter(
-                        x=genre_data["YearMonth"],
-                        y=genre_data["Count"],
-                        mode='lines+markers',
-                        name=genre
-                    ))
-            
-            fig.update_layout(
-                title="Genre Popularity Trends Over Time",
-                xaxis_title="Month",
-                yaxis_title="Listen Count",
-                xaxis_tickangle=-45,  
-                xaxis={
-                    'type': 'category',  
-                    'tickmode': 'auto',
-                    'nticks': 12,  
-                },
-                legend_title="Genre",
-                height=500,
-                margin=dict(b=100)  
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Add a normalized view to see relative popularity
-            if st.checkbox("Show normalized trends (percentage)"):
-                # Calculate percentage of each genre per month
-                monthly_totals = genre_monthly.groupby("YearMonth")["Count"].sum().reset_index()
-                genre_monthly = genre_monthly.merge(monthly_totals, on="YearMonth", suffixes=("", "_total"))
-                genre_monthly["Percentage"] = (genre_monthly["Count"] / genre_monthly["Count_total"]) * 100
-                
-                fig_norm = go.Figure()
-                
-                for genre in selected_genres:
-                    genre_data = genre_monthly[genre_monthly["Genre"] == genre]
-                    if not genre_data.empty:
-                        fig_norm.add_trace(go.Scatter(
-                            x=genre_data["YearMonth"],
-                            y=genre_data["Percentage"],
-                            mode='lines+markers',
-                            name=genre
-                        ))
-                
-                fig_norm.update_layout(
-                    title="Relative Genre Popularity Trends (% of Monthly Listens)",
-                    xaxis_title="Month",
-                    yaxis_title="Percentage (%)",
-                    xaxis_tickangle=-45,
-                    legend_title="Genre",
-                    height=500
-                )
-                
-                st.plotly_chart(fig_norm, use_container_width=True)
-    
-    elif trend_type == "Artist Popularity":
-        # Get top artists for the period
-        top_artists = filtered_df["Artist"].value_counts().nlargest(10).index.tolist()
-        selected_artists = st.multiselect("Select artists to compare:", top_artists, default=top_artists[:3])
-        
-        if selected_artists:
-            artist_df = filtered_df[filtered_df["Artist"].isin(selected_artists)]
-            
-            # Create a display dataframe with date format
-            display_artist_df = artist_df.copy()
-            display_artist_df["Listen_Date"] = display_artist_df["Listen_Date"].dt.date
-            # st.write(display_artist_df)
-            
-            artist_monthly = artist_df.groupby(["YearMonth", "Artist"]).size().reset_index(name="Count")
-            
-            fig = go.Figure()
-            
-            for artist in selected_artists:
-                artist_data = artist_monthly[artist_monthly["Artist"] == artist]
-                if not artist_data.empty:
-                    fig.add_trace(go.Scatter(
-                        x=artist_data["YearMonth"],
-                        y=artist_data["Count"],
-                        mode='lines+markers',
-                        name=artist
-                    ))
-            
-            fig.update_layout(
-                title="Artist Popularity Trends Over Time",
-                xaxis_title="Month",
-                yaxis_title="Listen Count",
-                xaxis_tickangle=-45,
-                legend_title="Artist",
-                height=500
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-
-with tab4:
-    st.session_state.current_tab = "artist_intelligence"
-    st.title("🎵 Artist Intelligence Dashboard")
-
-    # Artist Selection
-    all_artists = df["Artist"].unique().tolist()
-    selected_artist = st.selectbox("Select Artist to Analyze:", all_artists)
-    artist_df = df[df["Artist"] == selected_artist]
-
-    # --- Artist Overview Section ---
-    st.header(f"Overview of {selected_artist}")
-    col_overview_1, col_overview_2, col_overview_3 = st.columns([1, 2, 1])
-
-    with col_overview_1:
-        artist_image = get_artist_image(selected_artist)
-        st.image(artist_image, width=200)
-
-        st.subheader("Key Stats")
-        total_plays = len(artist_df)
-        unique_listeners = artist_df["User"].nunique()
-        unique_songs = artist_df["Song"].nunique()
-        plays_per_user = artist_df.groupby("User").size().mean()
-
-        st.metric("Total Plays", total_plays)
-        st.metric("Unique Listeners", unique_listeners)
-        st.metric("Catalog Size", unique_songs)
-        st.metric("Avg. Plays per Listener", f"{plays_per_user:.1f}")
-
-    with col_overview_2:
-        # Top Songs Chart
-        st.subheader("Top Songs")
-        top_songs = artist_df["Song"].value_counts().head(10).reset_index()
-        top_songs.columns = ["Song", "Plays"]
-
-        fig_top_songs = go.Figure(data=[
-            go.Bar(
-                x=top_songs["Plays"],
-                y=top_songs["Song"],
-                orientation='h',
-                marker_color='rgba(50, 171, 96, 0.7)'
-            )
-        ])
-
-        fig_top_songs.update_layout(
-            title_text="Top Songs by Play Count",
-            xaxis_title="Play Count",
-            yaxis_title="Song",
-            height=300 
-        )
-        st.plotly_chart(fig_top_songs, use_container_width=True)
-
-        # Temporal Listening Trend
-        if "Listen_Date" in artist_df.columns:
-            artist_df["YearMonth"] = artist_df["Listen_Date"].dt.strftime("%Y-%m")
-            monthly_listens = artist_df.groupby("YearMonth").size().reset_index(name="Listens")
-
-            fig_monthly_trend = go.Figure()
-            fig_monthly_trend.add_trace(go.Scatter(
-                x=monthly_listens["YearMonth"],
-                y=monthly_listens["Listens"],
-                mode='lines+markers',
-                line=dict(color='rgba(131, 58, 180, 0.7)', width=2),
-                marker=dict(size=8)
-            ))
-
-            fig_monthly_trend.update_layout(
-                title_text=f"Monthly Listening Trend for {selected_artist}",
-                xaxis_title="Month",
-                yaxis_title="Listen Count",
-                xaxis_tickangle=-45,
-                height=350
-            )
-
-            st.plotly_chart(fig_monthly_trend, use_container_width=True)
-        else:
-            st.warning("Listen Date information is not available for temporal analysis.")
-
-    with col_overview_3:
-        # Listener Engagement Funnel
-        st.subheader("Listener Engagement")
-        if "Listen_Date" in artist_df.columns:
-            user_listen_counts = artist_df.groupby("User").size().reset_index(name="ListenCount")
-
-            listen_categories = [
-                (1, "One-time Listeners"),
-                (2, 5, "Casual Listeners"),
-                (6, 15, "Regular Listeners"),
-                (16, float('inf'), "Super Fans")
-            ]
-
-            funnel_data = []
-            for category in listen_categories:
-                if len(category) == 2:
-                    count = len(user_listen_counts[user_listen_counts["ListenCount"] == category[0]])
-                    funnel_data.append({"Category": category[1], "Count": count})
+                    # Create other user node trace
+                    other_user_trace = None
+                    if other_users:
+                        other_user_x = [pos_3d[user][0] for user in other_users]
+                        other_user_y = [pos_3d[user][1] for user in other_users]
+                        other_user_z = [pos_3d[user][2] for user in other_users]
+                        other_user_text = [f"👤 {user}" for user in other_users]
+                        
+                        other_user_trace = go.Scatter3d(
+                            x=other_user_x, y=other_user_y, z=other_user_z,
+                            mode='markers+text',
+                            marker=dict(size=12, color='royalblue', line=dict(width=1)),
+                            text=other_user_text,
+                            textposition="top center",
+                            hoverinfo='text',
+                            name='Similar Users'
+                        )
+                    
+                    # Create song node trace
+                    song_x = [pos_3d[song][0] for song in song_nodes]
+                    song_y = [pos_3d[song][1] for song in song_nodes]
+                    song_z = [pos_3d[song][2] for song in song_nodes]
+                    # Trim song names if they're too long
+                    song_text = [f"🎵 {song[:20]}..." if len(song) > 20 else f"🎵 {song}" for song in song_nodes]
+                    
+                    song_trace = go.Scatter3d(
+                        x=song_x, y=song_y, z=song_z,
+                        mode='markers+text',
+                        marker=dict(size=10, color='gold', line=dict(width=1)),
+                        text=song_text,
+                        textposition="bottom center",
+                        hoverinfo='text',
+                        name='Songs'
+                    )
+                    
+                    # Combine traces for the figure
+                    traces = [edge_trace_3d, selected_user_trace, song_trace]
+                    if other_user_trace:
+                        traces.append(other_user_trace)
+                    
+                    fig_3d = go.Figure(
+                        data=traces,
+                        layout=go.Layout(
+                            title='Users who received the same song recommendations as you',
+                            showlegend=True,
+                            hovermode='closest',
+                            margin=dict(b=20, l=5, r=5, t=40),
+                            scene=dict(
+                                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                zaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                            )
+                        )
+                    )
+                    
+                    st.plotly_chart(fig_3d, use_container_width=True)
+                    
+                    with st.expander("How to use this visualization"):
+                        st.markdown("""
+                        - **Green node**: You
+                        - **Gold nodes**: Recommended songs
+                        - **Blue nodes**: Other users who received the same recommendations
+                        - **Lines**: Connections between users and their song recommendations
+                        
+                        This visualization shows which of your recommended songs are also recommended to other users!
+                        """)
                 else:
-                    count = len(user_listen_counts[(user_listen_counts["ListenCount"] >= category[0]) &
-                                                    (user_listen_counts["ListenCount"] <= category[1])])
-                    funnel_data.append({"Category": category[2], "Count": count})
+                    st.info("No overlapping recommended songs with other users were found.")
+                
+                def check_shared_recommendations(music_db):
+                    """
+                    Check if any users share the same recommended songs.
+                    Returns a dictionary with shared songs and the users who received them.
+                    """
+                    import sqlite3
+                    import pandas as pd
+                    
+                    # Get all users
+                    with sqlite3.connect(music_db.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT username FROM users")
+                        all_users = df.User.unique().tolist()
+                       
+                    
+                    # Dictionary to store songs and the users who received them
+                    song_to_users = {}
+                    
+                    # For each user, get their recommendations
+                    for user in all_users:
+                        recommendations = music_db.get_user_recommendations(user, limit=5)
+                        
+                        # Add each recommendation to the dictionary
+                        for rec in recommendations:
+                            song_name, artist_name = rec[0], rec[1]
+                            song_key = f"{song_name} - {artist_name}"
+                            
+                            if song_key not in song_to_users:
+                                song_to_users[song_key] = []
+                            
+                            song_to_users[song_key].append(user)
+                    
+                    # Filter to only songs recommended to multiple users
+                    shared_songs = {song: users for song, users in song_to_users.items() if len(users) > 1}
+                    
+                    # Print summary
+                    print(f"Found {len(shared_songs)} songs that are recommended to multiple users")
+                    
+                    # Show details of shared songs
+                    shared_songs_df = pd.DataFrame([
+                        {"Song": song, "Users": len(users), "User List": ", ".join(users[:5]) + ("..." if len(users) > 5 else "")}
+                        for song, users in shared_songs.items()
+                    ]).sort_values("Users", ascending=False)
+                    
+                    return shared_songs, shared_songs_df
 
-            funnel_df = pd.DataFrame(funnel_data)
+                # Usage in your Streamlit app:
+                if st.checkbox("Check for shared recommendations (Just for verfication purposes)"):
+                    with st.spinner("Analyzing recommendation patterns..."):
+                        shared_songs, shared_songs_df = check_shared_recommendations(music_db)
+                        
+                        if shared_songs:
+                            st.success(f"Found {len(shared_songs)} songs that are recommended to multiple users!")
+                            st.dataframe(shared_songs_df)
+                            
+                            # Get the most shared song
+                            most_shared = shared_songs_df.iloc[0]
+                            st.info(f"The most widely recommended song is '{most_shared['Song']}', " 
+                                f"which was recommended to {most_shared['Users']} different users.")
+                        else:
+                            st.warning("No shared recommendations found. Each user has unique song recommendations.")
 
-            fig_engagement_funnel = go.Figure(data=[
-                go.Funnel(
-                    y=funnel_df["Category"],
-                    x=funnel_df["Count"],
-                    textinfo="value+percent initial"
-                )
-            ])
 
-            fig_engagement_funnel.update_layout(
-                title_text="Engagement Funnel",
-                height=700  # Make it taller to match the combined height of the two charts beside it
-            )
 
-            st.plotly_chart(fig_engagement_funnel, use_container_width=True)
-        else:
-            st.warning("Listen Date information is not available for engagement analysis.")
-
-    st.markdown("---") 
-
-    # --- Audience Insights Section ---
-    st.header(f"Audience Insights for {selected_artist}'s Listeners")
-
-    artist_users = artist_df["User"].unique()
-    users_listening_data = df[df["User"].isin(artist_users)]
-
-    col_audience_1, col_audience_2 = st.columns(2)
-
-    with col_audience_1:
-        genre_affinity = users_listening_data.groupby("Genre").size().reset_index(name="Count")
-        genre_affinity = genre_affinity.sort_values("Count", ascending=False).head(10)
-
-        fig_genre_affinity = go.Figure(data=[
-            go.Bar(
-                x=genre_affinity["Genre"],
-                y=genre_affinity["Count"],
-                marker_color='rgba(71, 58, 131, 0.7)'
-            )
-        ])
-
-        fig_genre_affinity.update_layout(
-            title_text="Top Genre Preferences of Audience",
-            xaxis_title="Genre",
-            yaxis_title="Listen Count",
-            xaxis_tickangle=-45,
-            height=350 
-        )
-        st.plotly_chart(fig_genre_affinity, use_container_width=True)
-
-    with col_audience_2:
-        other_artists = users_listening_data[users_listening_data["Artist"] != selected_artist]["Artist"].value_counts().head(10)
-        other_artists = other_artists.reset_index()
-        other_artists.columns = ["Artist", "Count"]
-
-        fig_other_artists = go.Figure(data=[
-            go.Bar(
-                x=other_artists["Artist"],
-                y=other_artists["Count"],
-                marker_color='rgba(58, 71, 131, 0.7)'
-            )
-        ])
-
-        fig_other_artists.update_layout(
-            title_text="Other Artists Popular Among Fans",
-            xaxis_title="Artist",
-            yaxis_title="Listen Count",
-            xaxis_tickangle=-45,
-            height=350 
-        )
-        st.plotly_chart(fig_other_artists, use_container_width=True)
-
-        
