@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import re
 import requests
 import time
+import pickle
 from datetime import datetime
 import os
 import sys
@@ -61,45 +62,92 @@ def get_user_top_tracks(username, limit=10):
         return []
 
 
-def get_top_tracks(db_instance=None):
+# def get_top_tracks(db_instance=None):
+#     users = get_lastfm_users(INPUT_CSV)
+#     if not users:
+#         print("No users found. Exiting.")
+#         return
+
+#     if db_instance:
+#         db_instance.init_db()
+
+#     all_tracks = []
+#     for count, user in enumerate(users):
+#         print(f"[{count + 1}/{len(users)}] Fetching top tracks for: {user}")
+#         user_tracks = get_user_top_tracks(user)
+
+#         if db_instance and user_tracks:
+#             for track in user_tracks:
+#                 user_id = db_instance.insert_or_get_user(track['username'])
+#                 song_id = db_instance.insert_or_get_song(track['track_name'], track['artist'])
+
+#                 listen_week = datetime.now().strftime("%Y-%U")
+#                 playcount = track.get('playcount', 1)
+
+#                 db_instance.insert_listening_data(
+#                     user_id=user_id,
+#                     song_id=song_id,
+#                     listen_week=listen_week,
+#                     playcount=playcount
+#                 )
+
+#         all_tracks.extend(user_tracks)
+#         time.sleep(0.2)
+
+#     if all_tracks:
+#         print(f"\n Extracted data for {len(users)} users.")
+#         print(f" Total tracks collected: {len(all_tracks)}")
+#         return pd.DataFrame(all_tracks)
+#     else:
+#         print("No track data collected.")
+#         return pd.DataFrame()
+
+def get_top_tracks():
     users = get_lastfm_users(INPUT_CSV)
     if not users:
         print("No users found. Exiting.")
-        return
-
-    if db_instance:
-        db_instance.init_db()
+        return pd.DataFrame()
 
     all_tracks = []
     for count, user in enumerate(users):
         print(f"[{count + 1}/{len(users)}] Fetching top tracks for: {user}")
         user_tracks = get_user_top_tracks(user)
-
-        if db_instance and user_tracks:
-            for track in user_tracks:
-                user_id = db_instance.insert_or_get_user(track['username'])
-                song_id = db_instance.insert_or_get_song(track['track_name'], track['artist'])
-
-                listen_week = datetime.now().strftime("%Y-%U")
-                playcount = track.get('playcount', 1)
-
-                db_instance.insert_listening_data(
-                    user_id=user_id,
-                    song_id=song_id,
-                    listen_week=listen_week,
-                    playcount=playcount
-                )
-
         all_tracks.extend(user_tracks)
         time.sleep(0.2)
 
     if all_tracks:
-        print(f"\n Extracted data for {len(users)} users.")
-        print(f" Total tracks collected: {len(all_tracks)}")
+        print(f"\nExtracted data for {len(users)} users.")
+        print(f"Total tracks collected: {len(all_tracks)}")
         return pd.DataFrame(all_tracks)
     else:
         print("No track data collected.")
         return pd.DataFrame()
+    
+def load_tracks_to_db(tracks_df, db_instance=None):
+    if not isinstance(tracks_df, pd.DataFrame) or tracks_df.empty:
+        print("No tracks to load into database.")
+        return
+
+    if db_instance is None:
+        db_instance = MusicDB()
+
+    db_instance.init_db()
+
+    for _, track in tracks_df.iterrows():
+        user_id = db_instance.insert_or_get_user(track['username'])
+        song_id = db_instance.insert_or_get_song(track['track_name'], track['artist'])
+
+        listen_week = datetime.now().strftime("%Y-%U")
+        playcount = track.get('playcount', 1)
+
+        db_instance.insert_listening_data(
+            user_id=user_id,
+            song_id=song_id,
+            listen_week=listen_week,
+            playcount=playcount
+        )
+
+    print(f"Loaded {len(tracks_df)} tracks into database.")
 
 def get_global_top_songs():
     response = requests.get(TOP_GLOBAL_SONGS_URL)
@@ -116,11 +164,13 @@ def get_global_top_songs():
 def clean_track_name(text):
     return re.sub(r'\([^)]*\)', '', text).strip()
 
-def filter_out_global_songs(user_data_df):
-    global_top = get_global_top_songs()
+def filter_out_global_songs(user_data_df_filepath, global_top_filepath):
+    user_data_df = pd.read_csv(user_data_df_filepath)  # Read CSV directly
+    with open(global_top_filepath, 'rb') as f:
+        global_top = pickle.load(f)
 
     user_data_df['artist_track'] = (user_data_df['artist'].str.lower() + " - " +
-                                    user_data_df['track_name'].str.lower())
+                                   user_data_df['track_name'].str.lower())
     user_data_df['artist_track'] = user_data_df['artist_track'].apply(clean_track_name)
     cleaned_global_top = {clean_track_name(song) for song in global_top}
 
