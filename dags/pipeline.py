@@ -46,6 +46,8 @@ def filter_top_tracks_task(**kwargs):
         output_file = os.path.join(project_root, 'src', 'lightgcn', 'data', 'temp', 'users_top_tracks_filtered.csv')
         filtered_df.to_csv(output_file, index=False, header=True)
         kwargs['ti'].xcom_push(key='filtered_top_tracks_filepath', value=output_file)
+        os.remove(global_top_songs_file_path)
+        os.remove(users_top_tracks_file_path)
     else:
         print("No valid tracks found after filtering.")
 
@@ -57,6 +59,7 @@ def load_to_db_task(**kwargs):
     
         db = MusicDB()
         load_tracks_to_db(tracks_df=filtered_tracks, db_instance=db)
+        os.remove(filtered_top_tracks_file_path)
     else:
         print("No filtered top tracks file found. No data loaded into DB.")
 
