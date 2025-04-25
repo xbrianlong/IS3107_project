@@ -203,7 +203,7 @@ with tab2:
     # SECTION 1: Music Taste Analysis
     # ==========================================
     st.markdown("---")
-    st.header("🎭 Your Music Taste Profile")
+    st.header(f"🎭 {selected_user}'s Music Taste Profile")
     # st.write(df)
     # Create tabs for different music insights
     
@@ -211,8 +211,8 @@ with tab2:
     
     col1, col2 = st.columns(2)
     
-    with col1:
-        st.subheader("Your Top Songs")
+    with col2:
+        st.subheader(f"{selected_user}'s Top Songs")
 
         # Aggregate top songs by playcount and include artist info
         user_top_songs = (
@@ -246,9 +246,9 @@ with tab2:
         st.plotly_chart(fig, use_container_width=True)
                 
 
-    with col2:
+    with col1:
         # Add user's top artists
-        st.subheader("Your Top Artists")
+        st.subheader(f"{selected_user}'s Top Artists")
 
         # Sum playcount per artist for this user
         user_top_artists = user_df.groupby("Artist", as_index=False)["playcount"].sum()
@@ -277,7 +277,7 @@ with tab2:
     # SECTION 2: Personalized Recommendations
     # ==========================================
     # st.markdown("---")
-    st.header("🎵 Personalized Music Recommendations")
+    st.subheader("🎵 Personalized Music Recommendations")
 
     music_db = MusicDB(db_path="../outputs/music.db")
     
@@ -288,13 +288,13 @@ with tab2:
         user_recommendations = music_db.get_user_recommendations(selected_user, limit=10)
         if user_recommendations:
             # Display recommendations in a more visually appealing way
-            st.subheader("🤖 AI-Generated Song Recommendations")
+            st.subheader(f"🤖 {selected_user}'s Song Recommendations")
             
             # Sort by score (descending)
-            sorted_recommendations = sorted(user_recommendations[:8], key=lambda x: x[4], reverse=True)
+            sorted_recommendations = sorted(user_recommendations[:5], key=lambda x: x[4], reverse=True)
             
             # Use columns for cleaner layout - display up to 5 recommendations
-            cols = st.columns(min(8, len(sorted_recommendations)))
+            cols = st.columns(min(5, len(sorted_recommendations)))
             for i, rec in enumerate(sorted_recommendations):
                 song_name, artist_name, album_name, rank, score, generated_at = rec
                 
