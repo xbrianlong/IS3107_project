@@ -15,7 +15,7 @@ sys.path.insert(0, project_root)
 from config.settings import LASTFM_API_KEY, LASTFM_BASE_URL, TOP_GLOBAL_SONGS_URL
 from src.database.db_utils import MusicDB
 
-API_KEY = LASTFM_API_KEY
+API_KEY = "9285c225124a467ccf14911a4389058f"
 BASE_URL = LASTFM_BASE_URL
 DATA_DIR = os.path.join(project_root, 'src', 'data', 'raw_data')
 INPUT_CSV = os.path.join(DATA_DIR, 'lastfm_active_users.csv')

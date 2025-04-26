@@ -173,6 +173,14 @@ def predict_lgcn(**kwargs):
     with torch.no_grad():
         scores = Recmodel.getUsersRating(users)
 
+    # Mask already listened songs
+    allPos = dataset.allPos  # list of lists: songs listened by each user
+    scores = scores.clone()  # Important to avoid modifying original tensor
+
+    for user_id, pos_items in enumerate(allPos):
+        if len(pos_items) > 0:
+            scores[user_id, pos_items] = -1e9  # Large negative so they won't appear in top-k
+
     top_k = 5
     top_scores, top_items = torch.topk(scores, k=top_k, dim=1)
 
