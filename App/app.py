@@ -188,7 +188,7 @@ with tab2:
     st.session_state.current_tab = "user"
     
     # Header section with user selection
-    st.title("👤 User Personal Dashboard")
+    st.subheader("👤 User Personal Dashboard")
     st.markdown("Explore your music preferences and discover new songs based on your listening habits.")
     
     selected_user = st.selectbox("Select a User", sorted(df.User.unique().tolist()))
