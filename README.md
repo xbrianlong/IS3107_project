@@ -44,6 +44,25 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Running the Airflow Pipeline
+
+### 1. Setup Docker
+
+### 2. Build Docker Image
+```bash
+docker-compose build --no-cache
+```
+
+### 3. Run Docker Image
+```bash
+docker-compose up
+```
+
+### 4. Access Airflow Pipeline
+```bash
+localhost:8080
+```
+
 ## Running the Dashboard
 
 ### 1. Navigate to the App directory
